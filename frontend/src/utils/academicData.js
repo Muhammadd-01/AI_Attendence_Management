@@ -1,35 +1,19 @@
 /**
  * Academic Classes and Departments Store with local persistence
+ * Only displays custom classes and fields created by the user/principal.
  */
-
-const DEFAULT_CLASSES = [
-  'CS-401',
-  'CS-402',
-  'CS-403',
-  'SE-301',
-  'AI-501',
-  'DS-201'
-];
-
-const DEFAULT_DEPARTMENTS = [
-  'Computer Science',
-  'Artificial Intelligence',
-  'Data Science & Analytics',
-  'Software Engineering',
-  'Cybersecurity & Networks'
-];
 
 export function getStoredClasses() {
   try {
-    const saved = localStorage.getItem('ai_attendance_classes');
+    const saved = localStorage.getItem('ai_attendance_classes_custom');
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return parsed;
     }
   } catch (e) {
     // fallback
   }
-  return DEFAULT_CLASSES;
+  return [];
 }
 
 export function saveNewClass(newClassName) {
@@ -37,7 +21,7 @@ export function saveNewClass(newClassName) {
   const trimmed = newClassName.trim();
   if (trimmed && !current.includes(trimmed)) {
     const updated = [...current, trimmed];
-    localStorage.setItem('ai_attendance_classes', JSON.stringify(updated));
+    localStorage.setItem('ai_attendance_classes_custom', JSON.stringify(updated));
     return updated;
   }
   return current;
@@ -46,21 +30,21 @@ export function saveNewClass(newClassName) {
 export function removeClass(className) {
   const current = getStoredClasses();
   const updated = current.filter(c => c !== className);
-  localStorage.setItem('ai_attendance_classes', JSON.stringify(updated));
+  localStorage.setItem('ai_attendance_classes_custom', JSON.stringify(updated));
   return updated;
 }
 
 export function getStoredDepartments() {
   try {
-    const saved = localStorage.getItem('ai_attendance_departments');
+    const saved = localStorage.getItem('ai_attendance_departments_custom');
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return parsed;
     }
   } catch (e) {
     // fallback
   }
-  return DEFAULT_DEPARTMENTS;
+  return [];
 }
 
 export function saveNewDepartment(newDeptName) {
@@ -68,7 +52,7 @@ export function saveNewDepartment(newDeptName) {
   const trimmed = newDeptName.trim();
   if (trimmed && !current.includes(trimmed)) {
     const updated = [...current, trimmed];
-    localStorage.setItem('ai_attendance_departments', JSON.stringify(updated));
+    localStorage.setItem('ai_attendance_departments_custom', JSON.stringify(updated));
     return updated;
   }
   return current;
@@ -77,6 +61,6 @@ export function saveNewDepartment(newDeptName) {
 export function removeDepartment(deptName) {
   const current = getStoredDepartments();
   const updated = current.filter(d => d !== deptName);
-  localStorage.setItem('ai_attendance_departments', JSON.stringify(updated));
+  localStorage.setItem('ai_attendance_departments_custom', JSON.stringify(updated));
   return updated;
 }

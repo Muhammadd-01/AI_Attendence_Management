@@ -28,7 +28,7 @@ def get_student(student_id):
 @students_bp.route('', methods=['POST'])
 def create_student():
     try:
-        data = request.json
+        data = request.json or {}
         student = student_service.create_student(data)
         return success_response(student, 201)
     except Exception as e:
@@ -37,7 +37,7 @@ def create_student():
 @students_bp.route('/<student_id>', methods=['PUT'])
 def update_student(student_id):
     try:
-        data = request.json
+        data = request.json or {}
         student = student_service.update_student(student_id, data)
         return success_response(student)
     except Exception as e:
@@ -54,15 +54,23 @@ def delete_student(student_id):
 @students_bp.route('/<student_id>/faces/capture', methods=['POST'])
 def capture_face(student_id):
     try:
-        result = student_service.capture_face(student_id)
-        return success_response(result)
+        data = request.get_json(silent=True) or {}
+        image_data = data.get('image') or data.get('image_data')
+        result = student_service.capture_face(student_id, image_data=image_data)
+        if not result.get('success'):
+            return error_response(result.get('error', 'Capture failed'), 400)
+        return success_response(result, result.get('message', 'Face sample captured'))
     except Exception as e:
         return error_response(str(e))
 
 @students_bp.route('/<student_id>/train', methods=['POST'])
 def train_model(student_id):
     try:
-        result = student_service.train_student_model(student_id)
-        return success_response(result)
+        data = request.get_json(silent=True) or {}
+        image_urls = data.get('image_urls') or []
+        result = student_service.train_student_model(student_id, image_urls=image_urls)
+        if not result.get('success'):
+            return error_response(result.get('error', 'Training failed'), 400)
+        return success_response(result, result.get('message', 'Model trained successfully'))
     except Exception as e:
         return error_response(str(e))

@@ -122,10 +122,13 @@ export default function Students() {
     toast.success(`Department/Course "${newDeptName.trim()}" added!`);
   };
 
+  const [statusUpdatingId, setStatusUpdatingId] = useState(null);
+
   const handleSaveNew = async () => {
     if (!form.name || !form.student_id) return toast.error('Name and ID are required');
     setIsSubmitting(true);
     try {
+      await new Promise(r => setTimeout(r, 650));
       const res = await fetch('/api/students', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -156,6 +159,7 @@ export default function Students() {
   const handleSaveEdit = async () => {
     setIsSubmitting(true);
     try {
+      await new Promise(r => setTimeout(r, 600));
       const res = await fetch(`/api/students/${form.student_id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -176,8 +180,28 @@ export default function Students() {
     }
   };
 
+  const handleToggleStatus = async (student) => {
+    setStatusUpdatingId(student.student_id);
+    const newStatus = student.status === 'inactive' ? 'active' : 'inactive';
+    try {
+      await new Promise(r => setTimeout(r, 600));
+      await fetch(`/api/students/${student.student_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      setStudents(prev => prev.map(s => s.student_id === student.student_id ? { ...s, status: newStatus } : s));
+      toast.success(`${student.name} marked as ${newStatus}`);
+    } catch (err) {
+      toast.error('Failed to update status');
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
+
   const handleDelete = async () => {
     try {
+      await new Promise(r => setTimeout(r, 650));
       const res = await fetch(`/api/students/${showDelete.student_id}`, { method: 'DELETE' });
       const json = await res.json();
       if (json.success) {
@@ -397,12 +421,21 @@ export default function Students() {
                   </div>
                   
                   <div className="flex flex-col items-end gap-1">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
-                      s.status === 'inactive' ? 'bg-gray-100 text-gray-500' : 'bg-primary-50 text-primary-600'
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${s.status === 'inactive' ? 'bg-gray-400' : 'bg-primary-500'}`} />
-                      {s.status || 'Active'}
-                    </span>
+                    <button
+                      onClick={() => handleToggleStatus(s)}
+                      disabled={statusUpdatingId === s.student_id}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider transition-all hover:scale-105 ${
+                        s.status === 'inactive' ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' : 'bg-primary-50 text-primary-600 hover:bg-primary-100 dark:bg-primary-950/50'
+                      }`}
+                      title="Click to toggle Active / Inactive status"
+                    >
+                      {statusUpdatingId === s.student_id ? (
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      ) : (
+                        <span className={`w-1.5 h-1.5 rounded-full ${s.status === 'inactive' ? 'bg-gray-400' : 'bg-primary-500'}`} />
+                      )}
+                      {statusUpdatingId === s.student_id ? 'Updating...' : s.status || 'Active'}
+                    </button>
                   </div>
                 </div>
 

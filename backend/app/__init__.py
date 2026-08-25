@@ -1,4 +1,12 @@
 import os
+import warnings
+
+# Suppress deprecation notices from older google auth libraries on python 3.9
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*urllib3.*")
+warnings.filterwarnings("ignore", message=".*Google will update google-auth.*")
+
 from flask import Flask
 from flask_cors import CORS
 from app.config import Config

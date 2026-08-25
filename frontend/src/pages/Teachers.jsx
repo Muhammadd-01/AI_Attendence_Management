@@ -126,12 +126,15 @@ export default function Teachers() {
     toast.success(`Department "${newDeptName.trim()}" added!`);
   };
 
+  const [statusUpdatingId, setStatusUpdatingId] = useState(null);
+
   const handleCreateTeacher = async (e) => {
     e.preventDefault();
     if (!name || !email || !password) return toast.error('Please fill in all required fields');
     
     setSubmitting(true);
     try {
+      await new Promise(r => setTimeout(r, 650));
       const res = await fetch('/api/teachers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -160,9 +163,29 @@ export default function Teachers() {
     }
   };
 
+  const handleToggleStatus = async (teacher) => {
+    setStatusUpdatingId(teacher.id);
+    const newStatus = teacher.status === 'inactive' ? 'active' : 'inactive';
+    try {
+      await new Promise(r => setTimeout(r, 600));
+      await fetch(`/api/teachers/${teacher.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      setTeachers(prev => prev.map(t => t.id === teacher.id ? { ...t, status: newStatus } : t));
+      toast.success(`${teacher.name} marked as ${newStatus}`);
+    } catch (err) {
+      toast.error('Failed to update status');
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
+
   const handleDeleteTeacher = async () => {
     if (!showDeleteDialog) return;
     try {
+      await new Promise(r => setTimeout(r, 650));
       const res = await fetch(`/api/teachers/${showDeleteDialog.id}`, { method: 'DELETE' });
       const json = await res.json();
       if (json.success || json.status === 'success') {
@@ -320,12 +343,21 @@ export default function Teachers() {
                     <div>
                       <p className="font-semibold text-slate-900 dark:text-slate-100 leading-tight">{t.name}</p>
                       <p className="text-xs font-mono text-slate-400 mt-0.5">{t.teacher_id || t.id}</p>
-                      <span className={`inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
-                        t.status === 'inactive' ? 'bg-slate-100 text-slate-500' : 'bg-emerald-50 text-emerald-600'
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${t.status === 'inactive' ? 'bg-slate-400' : 'bg-emerald-500'}`} />
-                        {t.status === 'inactive' ? 'Inactive' : 'Active'}
-                      </span>
+                      <button
+                        onClick={() => handleToggleStatus(t)}
+                        disabled={statusUpdatingId === t.id}
+                        className={`inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider transition-all hover:scale-105 ${
+                          t.status === 'inactive' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-950/50'
+                        }`}
+                        title="Click to toggle Active / Inactive status"
+                      >
+                        {statusUpdatingId === t.id ? (
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        ) : (
+                          <span className={`w-1.5 h-1.5 rounded-full ${t.status === 'inactive' ? 'bg-slate-400' : 'bg-emerald-500'}`} />
+                        )}
+                        {statusUpdatingId === t.id ? 'Updating...' : t.status === 'inactive' ? 'Inactive' : 'Active'}
+                      </button>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -616,20 +648,21 @@ export default function Teachers() {
           size="xl"
         >
           <FaceCapture 
-            personId={showCapture.id} 
+            personId={showCapture.teacher_id || showCapture.id} 
             personName={showCapture.name}
-            bucket="student-faces"
-            onComplete={async (bestImageUrl) => { 
+            bucket="teacher-faces"
+            onComplete={async (bestImageUrl, count) => { 
               try {
+                const targetId = showCapture.teacher_id || showCapture.id;
                 if (bestImageUrl) {
-                  await fetch(`/api/teachers/${showCapture.id}`, {
+                  await fetch(`/api/teachers/${targetId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ avatar_url: bestImageUrl })
+                    body: JSON.stringify({ avatar_url: bestImageUrl, face_count: count })
                   });
                 }
-                setTeachers(prev => prev.map(tc => tc.id === showCapture.id ? { ...tc, avatar_url: bestImageUrl || tc.avatar_url } : tc));
-                toast.success('Faculty face model and card photo updated!');
+                setTeachers(prev => prev.map(tc => (tc.teacher_id === targetId || tc.id === targetId) ? { ...tc, avatar_url: bestImageUrl || tc.avatar_url, face_count: count } : tc));
+                toast.success('Faculty face model trained and photo updated!');
               } catch (err) {
                 console.error(err);
               }

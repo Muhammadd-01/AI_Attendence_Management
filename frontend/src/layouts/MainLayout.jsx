@@ -1,49 +1,47 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LayoutDashboard, 
   Video, 
   Users, 
-  GraduationCap,
+  GraduationCap, 
   ClipboardList, 
   FileText, 
   BarChart3, 
   Settings, 
   Brain, 
-  Menu, 
-  X,
-  Sun,
-  Moon,
-  ChevronLeft,
-  ChevronRight,
-  LogOut,
-  ShieldCheck,
-  UserCheck,
-  User,
-  BookOpen
+  Sun, 
+  Moon, 
+  LogOut, 
+  User, 
+  BookOpen, 
+  ChevronDown,
+  ScanFace,
+  Fingerprint
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatTime } from '../utils/formatters';
 import ConfirmDialog from '../components/ConfirmDialog';
 
-const BASE_NAV_ITEMS = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/live-attendance', label: 'Live Attendance', icon: Video },
-  { path: '/classes', label: 'Classes & Fields', icon: BookOpen },
+const NAV_ITEMS_DEF = [
+  { path: '/', label: 'Overview', icon: LayoutDashboard },
+  { path: '/live-attendance', label: 'Live AI', icon: Video, liveHighlight: true },
+  { path: '/kiosk', label: 'Check-In', icon: ScanFace, kioskHighlight: true },
+  { path: '/classes', label: 'Classes', icon: BookOpen },
   { path: '/students', label: 'Students', icon: GraduationCap },
-  { path: '/teachers', label: 'Teachers', icon: Users, role: 'principal' },
-  { path: '/attendance', label: 'Attendance', icon: ClipboardList },
+  { path: '/teachers', label: 'Faculty', icon: Users, role: 'principal' },
+  { path: '/attendance', label: 'Records', icon: ClipboardList },
   { path: '/reports', label: 'Reports', icon: FileText },
   { path: '/analytics', label: 'Analytics', icon: BarChart3 },
   { path: '/settings', label: 'Settings', icon: Settings },
-  { path: '/profile', label: 'My Profile', icon: User },
 ];
 
 export default function MainLayout() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+
   const { sessionActive, darkMode, setDarkMode, user, logout } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
@@ -53,148 +51,189 @@ export default function MainLayout() {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [location.pathname]);
-
-  const NAV_ITEMS = BASE_NAV_ITEMS.filter(
+  const navItems = NAV_ITEMS_DEF.filter(
     item => !item.role || item.role === user?.role
   );
 
-  const currentRoute = NAV_ITEMS.find(item => item.path === location.pathname) || NAV_ITEMS[0];
+  const currentRoute = navItems.find(item => item.path === location.pathname) || { label: 'Studio Workspace' };
 
   return (
-    <div className="h-screen flex bg-gray-50 transition-colors duration-300 overflow-hidden">
+    <div className="min-h-screen flex flex-col transition-colors duration-300 relative selection:bg-primary-500/20 pb-28">
       
-      {/* Mobile Sidebar Overlay */}
-      {mobileOpen && (
-        <div 
-          className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-40 lg:hidden transition-opacity"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside className={`
-        fixed lg:static inset-y-0 left-0 z-50 
-        ${sidebarCollapsed ? 'w-20' : 'w-72'} 
-        bg-slate-900 text-white flex flex-col 
-        transition-all duration-300 ease-in-out
-        ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-      `}>
-        {/* Logo Area */}
-        <div className={`h-20 flex items-center ${sidebarCollapsed ? 'justify-center px-0' : 'px-8'} bg-slate-950/50 relative group`}>
+      {/* Top Floating Vision Bar */}
+      <header className="pt-4 sm:pt-6 pb-2 px-3 sm:px-6 max-w-7xl mx-auto w-full z-40">
+        <div className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border border-slate-200/80 dark:border-slate-800/80 rounded-2xl sm:rounded-3xl shadow-xl shadow-slate-900/5 px-4 sm:px-6 py-2.5 flex items-center justify-between transition-all">
+          
+          {/* Brand & Current Module */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary-600 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-primary-600/20">
-              <Brain className="w-6 h-6 text-white" />
+            <button
+              onClick={() => navigate('/')}
+              className="flex items-center gap-2.5 group text-left focus:outline-none"
+            >
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-primary-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-primary-600/30 group-hover:scale-105 transition-transform shrink-0">
+                <Brain className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-display font-black text-sm tracking-tight text-slate-900 dark:text-white">
+                    AI ATTENDANCE
+                  </span>
+                  <span className="text-[9px] uppercase font-mono font-bold px-1.5 py-0.5 bg-primary-50 text-primary-600 dark:bg-primary-950/60 dark:text-primary-400 rounded-md border border-primary-200/60 dark:border-primary-800/50">
+                    STUDIO
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 font-medium">
+                  {user?.role === 'principal' ? '👑 Principal Authority' : '👨‍🏫 Faculty Session'} • <span className="text-primary-600 dark:text-primary-400 font-semibold">{currentRoute.label}</span>
+                </p>
+              </div>
+            </button>
+          </div>
+
+          {/* Quick Launch Terminal + Indicators */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Quick Kiosk Launch Button */}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => navigate('/kiosk')}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-sm shadow-emerald-500/20 transition-all"
+            >
+              <ScanFace className="w-3.5 h-3.5" />
+              <span>Face & Fingerprint Terminal</span>
+            </motion.button>
+
+            {/* Live Clock */}
+            <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/60 text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">
+              <span>{formatTime(currentTime.toISOString())}</span>
             </div>
-            {!sidebarCollapsed && (
-              <div className="font-bold text-xl tracking-tight leading-tight whitespace-nowrap overflow-hidden">
-                AI<br/><span className="text-primary-400">Attendance</span>
+
+            {/* Online Indicator */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/40 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Online</span>
+            </div>
+
+            {/* Vision Active Indicator */}
+            {sessionActive && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200/60 dark:border-rose-800/40 text-[11px] font-bold text-rose-600 dark:text-rose-400 animate-pulse">
+                <span className="live-dot" />
+                <span className="hidden sm:inline">Live</span>
+              </div>
+            )}
+
+            {/* Theme Switcher */}
+            <motion.button
+              whileTap={{ scale: 0.9, rotate: 15 }}
+              onClick={() => setDarkMode(!darkMode)}
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/60 transition-colors"
+              title="Toggle Theme"
+            >
+              {darkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+            </motion.button>
+
+            {/* Profile Dropdown */}
+            {user && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="flex items-center gap-2 p-1 pl-2 sm:pr-2 bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/60 rounded-xl hover:bg-slate-200/60 transition-colors"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-primary-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                    {(user.name || 'U').charAt(0)}
+                  </div>
+                  <span className="hidden sm:block text-xs font-semibold text-slate-800 dark:text-slate-200 max-w-[100px] truncate">
+                    {user.name.split(' ')[0]}
+                  </span>
+                  <ChevronDown className="w-3 h-3 text-slate-400" />
+                </button>
+
+                {/* Dropdown Menu */}
+                <AnimatePresence>
+                  {showUserMenu && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-2 z-50 space-y-1"
+                    >
+                      <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+                        <p className="font-semibold text-xs text-slate-900 dark:text-white truncate">{user.name}</p>
+                        <p className="text-[10px] text-slate-400 font-mono truncate">{user.email}</p>
+                      </div>
+                      <button
+                        onClick={() => { navigate('/profile'); setShowUserMenu(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      >
+                        <User className="w-3.5 h-3.5 text-primary-500" /> My Profile & Touch ID
+                      </button>
+                      <button
+                        onClick={() => { navigate('/kiosk'); setShowUserMenu(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
+                      >
+                        <ScanFace className="w-3.5 h-3.5" /> Face & Fingerprint Terminal
+                      </button>
+                      <button
+                        onClick={() => { setShowUserMenu(false); setShowLogoutConfirm(true); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                      >
+                        <LogOut className="w-3.5 h-3.5" /> Sign Out
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
           </div>
-          
-          <button 
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center text-gray-400 hover:text-white border border-slate-700 hidden lg:flex"
-          >
-            {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-          </button>
         </div>
+      </header>
 
-        {/* Navigation */}
-        <nav className="flex-1 py-8 px-4 overflow-y-auto space-y-1.5 custom-scrollbar">
-          {NAV_ITEMS.map((item) => {
+      {/* Main Expansive Canvas */}
+      <main className="flex-1 max-w-7xl mx-auto w-full px-3 sm:px-6 pt-3">
+        <Outlet />
+      </main>
+
+      {/* Perfectly Balanced Floating Bottom Dock with Sliding Active Pill */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-[96vw]">
+        <nav className="glass-dock rounded-full px-2.5 py-1.5 flex items-center justify-center gap-1 shadow-2xl border border-slate-700/60 no-scrollbar">
+          {navItems.map((item) => {
             const Icon = item.icon;
-            
+            const isActive = location.pathname === item.path;
+
             return (
               <NavLink
                 key={item.path}
                 to={item.path}
-                className={({ isActive }) => `
-                  flex items-center ${sidebarCollapsed ? 'justify-center px-0' : 'px-4'} py-3.5 rounded-xl transition-all duration-200 group
-                  ${isActive 
-                    ? 'bg-primary-600 text-white shadow-md shadow-primary-600/20' 
-                    : 'text-slate-400 hover:bg-slate-800/80 hover:text-white'}
-                `}
-                title={sidebarCollapsed ? item.label : undefined}
+                className={`relative z-10 flex items-center gap-1.5 px-3.5 py-1.5 sm:py-2 rounded-full text-xs font-semibold transition-colors duration-200 shrink-0 ${
+                  isActive 
+                    ? 'text-white font-bold' 
+                    : item.kioskHighlight
+                      ? 'text-emerald-400 hover:text-white'
+                      : 'text-slate-400 hover:text-white'
+                }`}
+                title={item.label}
               >
-                {({ isActive }) => (
-                  <>
-                    <Icon className={`w-5 h-5 shrink-0 transition-transform duration-200 ${isActive ? 'scale-110' : 'group-hover:scale-110'} ${!sidebarCollapsed && 'mr-3'}`} />
-                    {!sidebarCollapsed && <span className="font-medium">{item.label}</span>}
-                  </>
+                {isActive && (
+                  <motion.div
+                    layoutId="activeDockPill"
+                    className="absolute inset-0 bg-gradient-to-r from-primary-600 to-indigo-600 rounded-full shadow-md shadow-primary-600/30 -z-10"
+                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                  />
+                )}
+                <Icon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 transition-transform ${isActive ? 'text-white scale-105' : ''}`} />
+                <span className={`${isActive ? 'inline' : 'hidden xl:inline'} text-[11px] sm:text-xs font-medium`}>
+                  {item.label}
+                </span>
+                
+                {item.liveHighlight && sessionActive && (
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping absolute -top-0.5 -right-0.5" />
                 )}
               </NavLink>
             );
           })}
         </nav>
-        
-        {/* Sidebar Footer */}
-        <div className="p-4 border-t border-slate-800 space-y-2">
-          {!sidebarCollapsed && user && (
-            <button 
-              onClick={() => navigate('/profile')}
-              className="w-full text-left px-4 py-2 hover:bg-slate-800 rounded-xl transition-colors"
-            >
-              <p className="text-sm font-medium text-white truncate">{user.name}</p>
-              <p className="text-xs text-slate-500 truncate">{user.email}</p>
-            </button>
-          )}
-
-          <button
-            onClick={() => setShowLogoutConfirm(true)}
-            className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : 'px-4'} py-3 rounded-xl text-red-400 hover:bg-red-900/20 transition-colors`}
-            title={sidebarCollapsed ? 'Logout' : undefined}
-          >
-            <LogOut className={`w-5 h-5 shrink-0 ${!sidebarCollapsed && 'mr-3'}`} />
-            {!sidebarCollapsed && <span className="font-medium text-sm">Logout</span>}
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col h-screen min-w-0 transition-all duration-300 relative overflow-y-auto custom-scrollbar">
-        {/* Topbar */}
-        <header className="sticky top-0 right-0 left-0 h-16 bg-white shadow-sm z-40 flex items-center justify-between px-6 transition-colors duration-300 shrink-0">
-          <div className="flex items-center">
-            <button 
-              className="mr-4 lg:hidden text-gray-500 hover:text-gray-700"
-              onClick={() => setMobileOpen(true)}
-            >
-              <Menu className="w-6 h-6" />
-            </button>
-            <h1 className="text-xl font-semibold text-gray-800">{currentRoute.label}</h1>
-          </div>
-          
-          <div className="flex items-center space-x-4 sm:space-x-6">
-            <button 
-              onClick={() => setDarkMode(!darkMode)}
-              className="p-2 rounded-full text-gray-500 hover:bg-gray-100 transition-colors"
-              title="Toggle Dark Mode"
-            >
-              {darkMode ? <Sun className="w-5 h-5 text-amber-500" /> : <Moon className="w-5 h-5" />}
-            </button>
-            <div className="hidden md:flex items-center text-sm font-medium text-gray-600">
-              <span className="hidden lg:inline-block mr-2">{currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
-              <span>{formatTime(currentTime.toISOString())}</span>
-            </div>
-            
-            <div className={`hidden sm:flex items-center px-3 py-1 rounded-full text-xs font-semibold ${sessionActive ? 'bg-success/10 text-success' : 'bg-gray-100 text-gray-500'}`}>
-              <div className={`w-2 h-2 rounded-full mr-2 ${sessionActive ? 'bg-success animate-pulse' : 'bg-gray-400'}`}></div>
-              {sessionActive ? 'Session Active' : 'Offline'}
-            </div>
-          </div>
-        </header>
-
-        {/* Page Content */}
-        <main className="flex-1 p-4 sm:p-6 overflow-x-hidden">
-          <Outlet />
-        </main>
       </div>
 
-      {/* Logout Confirmation */}
+      {/* Logout Confirmation Dialog */}
       <ConfirmDialog
         isOpen={showLogoutConfirm}
         onClose={() => setShowLogoutConfirm(false)}

@@ -2,34 +2,28 @@ from app.database.connection import get_db
 import datetime
 import numpy as np
 
-def create_student(student_id, name, email, class_name, course):
+def create_student(student_id, name, email, class_name, course, status='active'):
     db = get_db()
-    
-    student_data = {
+    data = {
         'student_id': student_id,
         'name': name,
         'email': email,
         'class_name': class_name,
         'course': course,
-        'status': 'active',
+        'status': status,
         'face_count': 0,
         'encodings_count': 0,
         'registered_at': datetime.datetime.utcnow(),
         'updated_at': datetime.datetime.utcnow()
     }
-    
-    db.collection('students').document(student_id).set(student_data)
-    return student_data
+    db.collection('students').document(student_id).set(data)
+    return data
 
 def get_student(student_id):
     db = get_db()
     doc = db.collection('students').document(student_id).get()
-    
     if doc.exists:
-        data = doc.to_dict()
-        # Convert datetimes to strings if they exist, to ensure they can be JSON serialized later if needed,
-        # but typically this is done at the API level. We'll leave them as is for now.
-        return data
+        return doc.to_dict()
     return None
 
 def get_all_students(status=None, class_name=None, search=None):
@@ -42,53 +36,40 @@ def get_all_students(status=None, class_name=None, search=None):
         query = query.where('class_name', '==', class_name)
         
     docs = query.stream()
-    students = [doc.to_dict() for doc in docs]
+    students = []
     
-    if search:
-        search_lower = search.lower()
-        students = [
-            s for s in students 
-            if search_lower in s.get('name', '').lower() 
-            or search_lower in s.get('email', '').lower() 
-            or search_lower in s.get('student_id', '').lower()
-        ]
-        
+    for doc in docs:
+        data = doc.to_dict()
+        if search:
+            search_lower = search.lower()
+            if (search_lower in data.get('name', '').lower() or
+                search_lower in data.get('student_id', '').lower() or
+                search_lower in data.get('email', '').lower()):
+                students.append(data)
+        else:
+            students.append(data)
+            
     return students
 
 def update_student(student_id, data):
     db = get_db()
-    doc_ref = db.collection('students').document(student_id)
-    
-    if not doc_ref.get().exists:
-        return None
-        
-    update_data = data.copy()
-    update_data['updated_at'] = datetime.datetime.utcnow()
-    
-    doc_ref.update(update_data)
-    
-    return doc_ref.get().to_dict()
+    data['updated_at'] = datetime.datetime.utcnow()
+    db.collection('students').document(student_id).update(data)
+    return get_student(student_id)
 
 def deactivate_student(student_id):
     db = get_db()
-    doc_ref = db.collection('students').document(student_id)
-    if doc_ref.get().exists:
-        doc_ref.update({
-            'status': 'inactive',
-            'updated_at': datetime.datetime.utcnow()
-        })
-        return True
-    return False
+    db.collection('students').document(student_id).update({
+        'status': 'inactive',
+        'updated_at': datetime.datetime.utcnow()
+    })
+    return True
 
 def delete_student(student_id):
     db = get_db()
-    doc_ref = db.collection('students').document(student_id)
-    if doc_ref.get().exists:
-        # Also delete encodings subcollection
-        delete_encodings(student_id)
-        doc_ref.delete()
-        return True
-    return False
+    delete_encodings(student_id)
+    db.collection('students').document(student_id).delete()
+    return True
 
 def update_face_count(student_id, count):
     db = get_db()
@@ -99,23 +80,20 @@ def update_face_count(student_id, count):
 
 def get_student_count():
     db = get_db()
-    # Getting the count without fetching all documents (using aggregation query if possible, or just length)
-    # Using simple fetch for simplicity in this case as it's not a huge dataset
-    return len(list(db.collection('students').stream()))
+    docs = db.collection('students').stream()
+    return len(list(docs))
 
 def get_active_students():
-    return get_all_students(status='active')
+    db = get_db()
+    docs = db.collection('students').where('status', '==', 'active').stream()
+    return [doc.to_dict() for doc in docs]
 
 def search_students(query):
     return get_all_students(search=query)
 
 def save_encodings(student_id, encodings_list):
     db = get_db()
-    
-    # Get reference to the student's encodings subcollection
     encodings_ref = db.collection('students').document(student_id).collection('encodings')
-    
-    # First, optionally clear existing encodings
     delete_encodings(student_id)
     
     count = 0
@@ -131,7 +109,6 @@ def save_encodings(student_id, encodings_list):
         })
         count += 1
         
-    # Update the student document with the new count
     db.collection('students').document(student_id).update({
         'encodings_count': count,
         'updated_at': datetime.datetime.utcnow()
@@ -161,9 +138,27 @@ def get_all_encodings():
         if encodings:
             result[student_id] = {
                 'name': student['name'],
-                'encodings': encodings
+                'encodings': encodings,
+                'role': 'student'
             }
             
+    # Also load active faculty/teachers encodings
+    try:
+        teacher_docs = list(db.collection('teachers').where('status', '==', 'active').stream())
+        for t_doc in teacher_docs:
+            t_data = t_doc.to_dict()
+            t_id = t_data.get('teacher_id') or t_doc.id
+            t_encs_docs = list(db.collection('teachers').document(t_id).collection('encodings').stream())
+            t_encs = [np.array(e.to_dict()['encoding']) for e in t_encs_docs if 'encoding' in e.to_dict()]
+            if t_encs:
+                result[t_id] = {
+                    'name': t_data.get('name', 'Faculty Member'),
+                    'encodings': t_encs,
+                    'role': 'teacher'
+                }
+    except Exception:
+        pass
+
     return result
 
 def delete_encodings(student_id):
@@ -173,7 +168,6 @@ def delete_encodings(student_id):
     for doc in docs:
         doc.reference.delete()
     
-    # Reset count
     student_ref = db.collection('students').document(student_id)
     if student_ref.get().exists:
         student_ref.update({

@@ -71,3 +71,22 @@ class FaceEncoder:
                 logger.error(f"Error processing {path}: {str(e)}")
                 
         return valid_encodings
+
+    def compute_encodings_from_frames(self, rgb_frames):
+        """
+        Takes list of RGB numpy frames, encodes each, returns list of valid encodings.
+        Processes completely in memory without hitting the disk.
+        """
+        valid_encodings = []
+        for rgb_image in rgb_frames:
+            try:
+                face_locations = face_recognition.face_locations(rgb_image, model='hog')
+                if not face_locations:
+                    continue
+                encodings = face_recognition.face_encodings(rgb_image, known_face_locations=face_locations)
+                if encodings:
+                    valid_encodings.append(encodings[0])
+            except Exception as e:
+                logger.error(f"Error processing in-memory frame: {str(e)}")
+        return valid_encodings
+

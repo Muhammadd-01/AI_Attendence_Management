@@ -1,72 +1,82 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://rsasnwxsaohotxcqtesq.supabase.co';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * Upload a face image to Supabase Storage
- * @param {string} personId - e.g., "ST001" or "TCH001"
- * @param {File|Blob} file - The image file/blob to upload
- * @param {number} index - Image number for naming
- * @param {string} bucket - Storage bucket ('student-faces' or 'teacher-faces')
- * @returns {string} Public URL of the uploaded image
+ * Upload a face image to Supabase Storage with bucket auto-fallback
  */
 export async function uploadFaceImage(personId, file, index, bucket = 'student-faces') {
   const ext = file.name ? file.name.split('.').pop() : 'jpg';
   const filePath = `${personId}/face_${String(index).padStart(3, '0')}.${ext}`;
 
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .upload(filePath, file, {
-      cacheControl: '3600',
-      upsert: true,
-      contentType: file.type || 'image/jpeg'
-    });
+  // Try primary bucket, fallback to student-faces if teacher-faces is not created
+  const bucketsToTry = [bucket, 'student-faces', 'faces'];
 
-  if (error) throw error;
+  for (const b of bucketsToTry) {
+    try {
+      const { data, error } = await supabase.storage
+        .from(b)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: file.type || 'image/jpeg'
+        });
 
-  const { data: urlData } = supabase.storage
-    .from(bucket)
-    .getPublicUrl(filePath);
+      if (!error && data) {
+        const { data: urlData } = supabase.storage
+          .from(b)
+          .getPublicUrl(filePath);
+        return urlData.publicUrl;
+      }
+    } catch (e) {
+      // try next bucket
+    }
+  }
 
-  return urlData.publicUrl;
+  return null;
 }
 
 /**
  * Get all face images for a person
- * @param {string} personId
- * @param {string} bucket
- * @returns {string[]} Array of public URLs
  */
 export async function getStudentFaces(personId, bucket = 'student-faces') {
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .list(personId, { limit: 200, sortBy: { column: 'name', order: 'asc' } });
+  const bucketsToTry = [bucket, 'student-faces', 'faces'];
 
-  if (error) throw error;
+  for (const b of bucketsToTry) {
+    try {
+      const { data, error } = await supabase.storage
+        .from(b)
+        .list(personId, { limit: 200, sortBy: { column: 'name', order: 'asc' } });
 
-  return data.map(file => {
-    const { data: urlData } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(`${personId}/${file.name}`);
-    return urlData.publicUrl;
-  });
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return data.map(file => {
+          const { data: urlData } = supabase.storage
+            .from(b)
+            .getPublicUrl(`${personId}/${file.name}`);
+          return urlData.publicUrl;
+        });
+      }
+    } catch (e) {}
+  }
+
+  return [];
 }
 
 /**
  * Delete all face images for a person
- * @param {string} personId
- * @param {string} bucket
  */
 export async function deleteStudentFaces(personId, bucket = 'student-faces') {
-  const { data: files } = await supabase.storage
-    .from(bucket)
-    .list(personId);
+  try {
+    const { data: files } = await supabase.storage
+      .from(bucket)
+      .list(personId);
 
-  if (files && files.length > 0) {
-    const filePaths = files.map(f => `${personId}/${f.name}`);
-    await supabase.storage.from(bucket).remove(filePaths);
-  }
+    if (files && files.length > 0) {
+      const filePaths = files.map(f => `${personId}/${f.name}`);
+      await supabase.storage.from(bucket).remove(filePaths);
+    }
+  } catch (e) {}
 }

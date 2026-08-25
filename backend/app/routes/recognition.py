@@ -1,4 +1,4 @@
-from flask import Blueprint, Response
+from flask import Blueprint, Response, request
 from app.services import recognition_service
 from app.utils.helpers import success_response, error_response
 
@@ -33,6 +33,24 @@ def get_latest_results():
     try:
         latest = recognition_service.get_latest_results()
         return success_response(latest)
+    except Exception as e:
+        return error_response(str(e))
+
+@recognition_bp.route('/scan-frame', methods=['POST'])
+def scan_frame():
+    try:
+        data = request.get_json(silent=True) or {}
+        image_data = data.get('image')
+        res = recognition_service.detect_and_recognize_frame(image_data=image_data)
+        return success_response(res)
+    except Exception as e:
+        return error_response(str(e))
+
+@recognition_bp.route('/sync-all', methods=['POST'])
+def sync_all_users():
+    try:
+        res = recognition_service.sync_all()
+        return success_response(res, "All user models synchronized successfully")
     except Exception as e:
         return error_response(str(e))
 

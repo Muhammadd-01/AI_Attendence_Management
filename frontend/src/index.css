@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-primary-50: #f0f7ff;
   --color-primary-100: #e0effe;
@@ -20,34 +21,45 @@
   --color-warning: #f59e0b;
   --color-danger: #f43f5e;
   --color-info: #0ea5e9;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Space Grotesk', 'Inter', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
-/* Base styles */
+/* Base Styles & Ambient Cyber Studio Canvas */
 body {
-  @apply bg-[#f8fafc] text-slate-900 antialiased transition-colors duration-300;
-  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
-  letter-spacing: -0.01em;
+  @apply bg-slate-50 text-slate-900 antialiased transition-colors duration-300;
+  font-family: var(--font-sans);
+  letter-spacing: -0.015em;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(14, 135, 233, 0.07) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.06) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, rgba(99, 102, 241, 0.05) 0px, transparent 50%);
+  background-attachment: fixed;
 }
 
 .dark body {
-  @apply bg-[#0b0f19] text-slate-100;
+  @apply bg-[#070b14] text-slate-100;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(14, 135, 233, 0.15) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.1) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, rgba(99, 102, 241, 0.08) 0px, transparent 50%);
+  background-attachment: fixed;
 }
 
-/* Auto-dark mode for standard utility classes used in the app */
-.dark .bg-white { @apply !bg-[#111827]; }
-.dark .bg-gray-50 { @apply !bg-[#0f172a]/60; }
-.dark .bg-gray-100 { @apply !bg-[#1e293b]; }
-.dark .text-gray-900 { @apply !text-slate-100; }
-.dark .text-gray-800 { @apply !text-slate-200; }
-.dark .text-gray-700 { @apply !text-slate-300; }
-.dark .text-gray-600 { @apply !text-slate-400; }
-.dark .text-gray-500 { @apply !text-slate-400; }
-.dark .border-gray-100, .dark .border-gray-200 { @apply !border-slate-800; }
-.dark input, .dark select { @apply !bg-[#0f172a] !text-slate-100 !border-slate-700; }
-.dark .shadow-sm { @apply !shadow-slate-950/60; }
-.dark header { @apply !bg-[#111827] !border-slate-800; }
+/* Futuristic Display Headings */
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+}
 
-/* Custom ultra-smooth scrollbars */
+/* Monospace stats & code */
+code, pre, .font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Custom Smooth Scrollbars */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -58,60 +70,84 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-200 rounded-full dark:bg-slate-800;
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(51, 65, 85, 0.5);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-slate-300 dark:bg-slate-700;
+  background: rgba(148, 163, 184, 0.5);
 }
 
-/* Glassmorphism helpers */
+/* Hide scrollbars for docks and containers */
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+/* Modern Glass Panels */
 .glass-panel {
   background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(226, 232, 240, 0.8);
 }
 
 .dark .glass-panel {
-  background: rgba(17, 24, 39, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(30, 41, 59, 0.8);
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(51, 65, 85, 0.6);
 }
 
-/* Card hover glow effect */
+/* Floating Dock Styling */
+.glass-dock {
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(71, 85, 105, 0.6);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.5);
+}
+
+/* Floating Card Hover */
 .card-hover {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .card-hover:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 16px 32px -10px rgba(0, 0, 0, 0.08);
 }
 
-/* Status badge styles */
+/* Status Badges */
 .badge {
   @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide;
 }
 
 .badge-present {
-  @apply bg-emerald-50 text-emerald-700 border border-emerald-200/60;
+  @apply bg-emerald-50 text-emerald-700 border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50;
 }
 
 .badge-absent {
-  @apply bg-rose-50 text-rose-700 border border-rose-200/60;
+  @apply bg-rose-50 text-rose-700 border border-rose-200/60 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/50;
 }
 
 .badge-late {
-  @apply bg-amber-50 text-amber-700 border border-amber-200/60;
+  @apply bg-amber-50 text-amber-700 border border-amber-200/60 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/50;
 }
 
 .badge-unknown {
-  @apply bg-slate-100 text-slate-700 border border-slate-200/60;
+  @apply bg-slate-100 text-slate-700 border border-slate-200/60 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700;
 }
 
-/* Animation for live indicator */
+/* Live Pulse Beacon */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.85); }
@@ -122,7 +158,7 @@ body {
   animation: pulse-dot 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Laser Fingerprint Scanner Animation */
+/* Laser Scanner Animation */
 @keyframes scan-laser {
   0% { top: 0%; opacity: 0; }
   15% { opacity: 1; }
@@ -145,4 +181,3 @@ body {
   box-shadow: 0 0 12px #10b981, 0 0 24px #10b981;
   animation: scan-laser 2.2s ease-in-out infinite;
 }
-

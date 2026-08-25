@@ -34,8 +34,7 @@ export default function Classes() {
   // Modals
   const [showAddClass, setShowAddClass] = useState(false);
   const [newClassName, setNewClassName] = useState('');
-  const [newClassDept, setNewClassDept] = useState(deptList[0] || 'Computer Science');
-  const [newClassTeacher, setNewClassTeacher] = useState('');
+  const [newClassDept, setNewClassDept] = useState(deptList[0] || '');
 
   const [showAddDept, setShowAddDept] = useState(false);
   const [newDeptName, setNewDeptName] = useState('');
@@ -56,9 +55,6 @@ export default function Classes() {
       }
       if (tcRes.status === 'fulfilled' && tcRes.value?.data) {
         setTeachers(tcRes.value.data);
-        if (tcRes.value.data.length > 0 && !newClassTeacher) {
-          setNewClassTeacher(tcRes.value.data[0].id || tcRes.value.data[0].name);
-        }
       }
       if (attRes.status === 'fulfilled' && attRes.value?.data) {
         setAttendanceLogs(attRes.value.data);
@@ -306,6 +302,22 @@ export default function Classes() {
         </motion.div>
       )}
 
+      {activeTab === 'classes' && !selectedClass && filteredClasses.length === 0 && (
+        <div className="bg-white dark:bg-slate-800 rounded-3xl p-12 border border-slate-100 dark:border-slate-700/60 text-center text-slate-400">
+          <BookOpen className="w-14 h-14 mx-auto mb-3 opacity-30 text-primary-500" />
+          <h3 className="text-base font-bold text-slate-700 dark:text-slate-200">No Academic Classes Added Yet</h3>
+          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+            Classes are customized by the Principal. Click "Create Class" above to set up your first classroom division.
+          </p>
+          <button
+            onClick={() => setShowAddClass(true)}
+            className="mt-5 inline-flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-5 py-2.5 rounded-xl font-semibold text-xs shadow-md shadow-primary-600/20 transition-all"
+          >
+            <Plus className="w-4 h-4" /> Create First Class
+          </button>
+        </div>
+      )}
+
       {/* Class Detailed View (When a card is clicked) */}
       {selectedClass && (
         <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -451,7 +463,7 @@ export default function Classes() {
       )}
 
       {/* Main Content Area: Departments / Fields Tab */}
-      {activeTab === 'departments' && (
+      {activeTab === 'departments' && filteredDepts.length > 0 && (
         <motion.div variants={container} initial="hidden" animate="show" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredDepts.map(dept => {
             const deptTeachers = teachers.filter(t => t.department === dept || t.department?.includes(dept));
@@ -506,6 +518,22 @@ export default function Classes() {
         </motion.div>
       )}
 
+      {activeTab === 'departments' && filteredDepts.length === 0 && (
+        <div className="bg-white dark:bg-slate-800 rounded-3xl p-12 border border-slate-100 dark:border-slate-700/60 text-center text-slate-400">
+          <Building className="w-14 h-14 mx-auto mb-3 opacity-30 text-emerald-500" />
+          <h3 className="text-base font-bold text-slate-700 dark:text-slate-200">No Academic Departments Added Yet</h3>
+          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+            Departments/Fields are customized by the Principal. Click "Add Field / Dept" above to set up your first field.
+          </p>
+          <button
+            onClick={() => setShowAddDept(true)}
+            className="mt-5 inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-semibold text-xs shadow-md shadow-emerald-600/20 transition-all"
+          >
+            <Plus className="w-4 h-4" /> Add First Department
+          </button>
+        </div>
+      )}
+
       {/* Add New Class Modal */}
       <Modal isOpen={showAddClass} onClose={() => setShowAddClass(false)} title="Create New Academic Class" size="md">
         <form onSubmit={handleCreateClass} className="space-y-4">
@@ -527,15 +555,25 @@ export default function Classes() {
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               Department / Discipline
             </label>
-            <select
-              value={newClassDept}
-              onChange={e => setNewClassDept(e.target.value)}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              {deptList.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
+            {deptList.length > 0 ? (
+              <select
+                value={newClassDept}
+                onChange={e => setNewClassDept(e.target.value)}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                {deptList.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={newClassDept}
+                onChange={e => setNewClassDept(e.target.value)}
+                placeholder="Discipline / Department"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            )}
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">

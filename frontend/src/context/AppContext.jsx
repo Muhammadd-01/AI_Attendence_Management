@@ -10,7 +10,10 @@ export const AppProvider = ({ children }) => {
   const [settings, setSettings] = useState(null);
   const [sessionActive, setSessionActive] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('ai_attendance_dark_mode');
+    return saved !== null ? saved === 'true' : false;
+  });
   
   // Auth State (mock)
   const [user, setUser] = useState(() => {
@@ -46,6 +49,7 @@ export const AppProvider = ({ children }) => {
   };
 
   useEffect(() => {
+    localStorage.setItem('ai_attendance_dark_mode', String(darkMode));
     if (darkMode) {
       document.documentElement.classList.add('dark');
     } else {
