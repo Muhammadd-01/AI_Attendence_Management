@@ -55,8 +55,8 @@ export const AppProvider = ({ children }) => {
 
   const refreshSettings = useCallback(async () => {
     try {
-      const data = await getSettings();
-      setSettings(data);
+      const res = await getSettings();
+      setSettings(res?.data || res || {});
     } catch (error) {
       console.error('Failed to load settings', error);
     }
@@ -64,8 +64,9 @@ export const AppProvider = ({ children }) => {
 
   const checkSession = useCallback(async () => {
     try {
-      const data = await getStatus();
-      setSessionActive(data?.is_active || false);
+      const res = await getStatus();
+      const payload = res?.data || res;
+      setSessionActive(payload?.is_active || payload?.session_active || false);
     } catch (error) {
       console.error('Failed to check session status', error);
     }

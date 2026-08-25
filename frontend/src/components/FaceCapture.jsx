@@ -1,41 +1,70 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import CameraFeed from './CameraFeed';
 import toast from 'react-hot-toast';
 import { Camera, Check, Play, Square, Loader, Upload, ArrowRight, ArrowLeft, ArrowUp, ArrowDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { uploadFaceImage } from '../services/supabase';
 
-export default function FaceCapture({ studentId, studentName, onComplete, onClose }) {
+export default function FaceCapture({ personId, personName, bucket = 'student-faces', onComplete, onClose }) {
   const [tab, setTab] = useState('camera');
   const [imagesCaptured, setImagesCaptured] = useState(0);
+  const [bestImageUrl, setBestImageUrl] = useState(null);
   const [autoMode, setAutoMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const maxImages = 100;
   const minRequired = 20;
+  
+  const cameraRef = useRef(null);
+  const isCapturingRef = useRef(false);
 
   useEffect(() => {
     let interval;
     if (autoMode && imagesCaptured < maxImages) {
       interval = setInterval(() => {
-        handleCapture();
-      }, 500); // Faster mock capture
+        if (!isCapturingRef.current) {
+          handleCapture();
+        }
+      }, 500); // 500ms delay between shots
     }
     return () => clearInterval(interval);
   }, [autoMode, imagesCaptured]);
 
-  const handleCapture = () => {
-    if (loading || imagesCaptured >= maxImages) return;
-    setLoading(true);
+  const handleCapture = async () => {
+    if (loading || imagesCaptured >= maxImages || isCapturingRef.current) return;
     
-    setTimeout(() => {
-      setImagesCaptured(prev => {
-        if (prev + 1 === maxImages) {
-          setAutoMode(false);
-          toast.success('Max images captured!');
+    setLoading(true);
+    isCapturingRef.current = true;
+    
+    try {
+      if (cameraRef.current) {
+        const blob = await cameraRef.current.captureFrame();
+        if (blob) {
+          // Upload to Supabase
+          const url = await uploadFaceImage(personId, blob, imagesCaptured + 1, bucket);
+          if (!bestImageUrl || imagesCaptured === 0) {
+            setBestImageUrl(url);
+          }
+          
+          setImagesCaptured(prev => {
+            const next = prev + 1;
+            if (next === maxImages) {
+              setAutoMode(false);
+              toast.success('Max images captured!');
+            }
+            return next;
+          });
+        } else {
+          toast.error("Failed to capture frame");
         }
-        return prev + 1;
-      });
+      }
+    } catch (err) {
+      console.error("Capture error:", err);
+      toast.error("Error saving image to Supabase");
+      setAutoMode(false);
+    } finally {
       setLoading(false);
-    }, 100);
+      isCapturingRef.current = false;
+    }
   };
 
   const getGuideContent = () => {
@@ -51,7 +80,7 @@ export default function FaceCapture({ studentId, studentName, onComplete, onClos
   return (
     <div className="flex flex-col md:flex-row gap-6">
       <div className="flex-1 relative rounded-xl overflow-hidden shadow-inner bg-black">
-        <CameraFeed active={true} className="h-64 md:h-[400px] border-none shadow-none" />
+        <CameraFeed ref={cameraRef} active={true} className="h-64 md:h-[400px] border-none shadow-none" />
         
         {/* Dynamic Overlay Guide */}
         {tab === 'camera' && imagesCaptured < maxImages && autoMode && (
@@ -74,7 +103,7 @@ export default function FaceCapture({ studentId, studentName, onComplete, onClos
       <div className="w-full md:w-80 flex flex-col space-y-4">
         <div>
           <h3 className="font-medium text-gray-900 mb-1">Face Registration</h3>
-          <p className="text-sm text-gray-500">Registering faces for {studentName || 'Student'}</p>
+          <p className="text-sm text-gray-500">Registering faces for {personName || 'Person'}</p>
         </div>
         
         <div className="flex rounded-lg bg-gray-100 p-1 mb-2">
@@ -131,7 +160,7 @@ export default function FaceCapture({ studentId, studentName, onComplete, onClos
               <button
                 onClick={() => {
                   if (imagesCaptured >= minRequired) {
-                    if (onComplete) onComplete();
+                    if (onComplete) onComplete(bestImageUrl, imagesCaptured);
                   } else {
                     toast.error(`Please capture at least ${minRequired} images`);
                   }
@@ -155,22 +184,42 @@ export default function FaceCapture({ studentId, studentName, onComplete, onClos
                 accept="image/*" 
                 className="hidden" 
                 id="file-upload" 
-                onChange={(e) => {
-                  const files = e.target.files;
+                onChange={async (e) => {
+                  const files = Array.from(e.target.files);
                   if (files.length > 0) {
-                    setImagesCaptured(prev => Math.min(maxImages, prev + files.length));
-                    toast.success(`${files.length} images processed`);
+                    setLoading(true);
+                    try {
+                      let uploadedCount = 0;
+                      let firstUrl = bestImageUrl;
+                      for (const file of files) {
+                        if (imagesCaptured + uploadedCount >= maxImages) break;
+                        const url = await uploadFaceImage(personId, file, imagesCaptured + uploadedCount + 1, bucket);
+                        if (!firstUrl) firstUrl = url;
+                        uploadedCount++;
+                      }
+                      if (firstUrl) setBestImageUrl(firstUrl);
+                      setImagesCaptured(prev => Math.min(maxImages, prev + uploadedCount));
+                      toast.success(`${uploadedCount} images uploaded successfully!`);
+                    } catch (err) {
+                      console.error("Upload error:", err);
+                      toast.error("Failed to upload some images");
+                    } finally {
+                      setLoading(false);
+                    }
                   }
                 }} 
               />
-              <label htmlFor="file-upload" className="mt-4 px-4 py-2 bg-primary-50 text-primary-600 rounded-lg text-sm font-medium cursor-pointer hover:bg-primary-100">Select Files</label>
+              <label htmlFor="file-upload" className="mt-4 px-4 py-2 bg-primary-50 text-primary-600 rounded-lg text-sm font-medium cursor-pointer hover:bg-primary-100 flex items-center">
+                {loading ? <Loader className="w-4 h-4 animate-spin mr-2" /> : null}
+                {loading ? 'Uploading...' : 'Select Files'}
+              </label>
             </div>
             
             <div className="mt-auto pt-4">
                <button
                 onClick={() => {
                   if (imagesCaptured >= minRequired) {
-                    if (onComplete) onComplete();
+                    if (onComplete) onComplete(bestImageUrl, imagesCaptured);
                   } else {
                     toast.error(`Please upload at least ${minRequired} images`);
                   }

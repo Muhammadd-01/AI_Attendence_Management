@@ -1,4 +1,5 @@
 import csv
+import datetime
 from io import StringIO
 from app.models import student, attendance
 
@@ -9,7 +10,7 @@ def get_dashboard_stats():
     
     attendance_rate = 0
     if total_students and total_students > 0:
-        attendance_rate = (present_today / total_students) * 100
+        attendance_rate = round((present_today / total_students) * 100, 1)
         
     return {
         "total_students": total_students or 0,
@@ -19,7 +20,7 @@ def get_dashboard_stats():
     }
 
 def get_anomalies():
-    # Students with < 75% attendance or 3+ consecutive absences
+    # Students with < 75% attendance or consecutive absences
     anomalies = []
     active_students = student.get_active_students()
     
@@ -27,63 +28,97 @@ def get_anomalies():
         return anomalies
         
     for s in active_students:
-        student_id = s.get('id')
-        attendance_percentage = attendance.get_student_attendance_percentage(student_id)
+        student_id = s.get('student_id') or s.get('id')
+        attendance_pct = attendance.get_student_attendance_percentage(student_id)
         
-        is_anomaly = False
         reasons = []
-        
-        if attendance_percentage is not None and attendance_percentage < 75.0:
-            is_anomaly = True
-            reasons.append("Low attendance (<75%)")
+        if attendance_pct is not None and attendance_pct < 75.0 and attendance_pct > 0:
+            reasons.append(f"Low overall attendance ({attendance_pct}%)")
             
-        history = attendance.get_student_attendance(student_id, limit=3)
+        history = attendance.get_student_attendance(student_id)
         if history and len(history) >= 3:
-            consecutive_absences = all(record.get('status') == 'absent' for record in history[:3])
-            if consecutive_absences:
-                is_anomaly = True
-                reasons.append("3+ consecutive absences")
+            consecutive_absences = sum(1 for record in history[:3] if record.get('status') == 'Absent')
+            if consecutive_absences >= 3:
+                reasons.append("3+ consecutive absences detected")
                 
-        if is_anomaly:
+        if reasons:
             anomalies.append({
-                "student": s,
+                "student_id": student_id,
+                "student_name": s.get('name', 'Student'),
+                "class_name": s.get('class_name', 'General'),
+                "attendance_rate": attendance_pct,
                 "reasons": reasons
             })
             
     return anomalies
 
-def generate_csv_report(report_type, date_str=None):
-    output = StringIO()
-    writer = csv.writer(output)
+def get_class_statistics():
+    all_students = student.get_all_students()
+    classes = {}
     
-    if report_type == "daily":
-        writer.writerow(["Student ID", "Name", "Time In", "Time Out", "Status"])
-        if date_str:
-            records = attendance.get_attendance_by_date(date_str)
-        else:
-            records = attendance.get_today_attendance()
-            
-        if records:
-            for record in records:
-                writer.writerow([
-                    record.get("student_id", ""),
-                    record.get("student_name", ""),
-                    record.get("check_in_time", ""),
-                    record.get("check_out_time", ""),
-                    record.get("status", "")
-                ])
-            
-    elif report_type == "monthly":
-        writer.writerow(["Student ID", "Name", "Total Present", "Total Absent", "Attendance %"])
-        stats = attendance.get_attendance_stats(month=date_str)
-        if stats:
-            for stat in stats:
-                writer.writerow([
-                    stat.get("student_id", ""),
-                    stat.get("student_name", ""),
-                    stat.get("total_present", 0),
-                    stat.get("total_absent", 0),
-                    stat.get("attendance_percentage", 0.0)
-                ])
-            
-    return output.getvalue()
+    for s in all_students:
+        c_name = s.get('class_name', 'CS-401')
+        if c_name not in classes:
+            classes[c_name] = {'total_students': 0, 'present_sum': 0, 'attendance_pct_sum': 0}
+        classes[c_name]['total_students'] += 1
+        pct = attendance.get_student_attendance_percentage(s.get('student_id', s.get('id')))
+        classes[c_name]['attendance_pct_sum'] += (pct or 0)
+        
+    results = []
+    for c_name, data in classes.items():
+        tot = data['total_students']
+        avg_rate = round(data['attendance_pct_sum'] / max(tot, 1), 1)
+        results.append({
+            'class_name': c_name,
+            'students_count': tot,
+            'average_rate': avg_rate
+        })
+        
+    return results
+
+def get_attendance_distribution():
+    today_records = attendance.get_today_attendance()
+    if not today_records:
+        # Fallback to last 30 days totals
+        stats = attendance.get_attendance_stats(days=30)
+        p = sum(v.get('Present', 0) for v in stats.values())
+        l = sum(v.get('Late', 0) for v in stats.values())
+        a = sum(v.get('Absent', 0) for v in stats.values())
+        return {'present': p, 'late': l, 'absent': a}
+        
+    p = sum(1 for r in today_records if r.get('status') == 'Present')
+    l = sum(1 for r in today_records if r.get('status') == 'Late')
+    a = sum(1 for r in today_records if r.get('status') == 'Absent')
+    return {'present': p, 'late': l, 'absent': a}
+
+def get_full_analytics():
+    stats = get_dashboard_stats()
+    classes = get_class_statistics()
+    distribution = get_attendance_distribution()
+    anomalies = get_anomalies()
+    
+    # Top absent students
+    all_students = student.get_all_students()
+    student_scores = []
+    for s in all_students:
+        sid = s.get('student_id', s.get('id'))
+        pct = attendance.get_student_attendance_percentage(sid)
+        history = attendance.get_student_attendance(sid)
+        absences = sum(1 for r in history if r.get('status') == 'Absent')
+        student_scores.append({
+            'student_id': sid,
+            'name': s.get('name'),
+            'class_name': s.get('class_name'),
+            'attendance_rate': pct,
+            'absences': absences
+        })
+        
+    student_scores.sort(key=lambda x: x['absences'], reverse=True)
+    
+    return {
+        'stats': stats,
+        'classes': classes,
+        'distribution': distribution,
+        'anomalies': anomalies,
+        'most_absent': student_scores[:10]
+    }

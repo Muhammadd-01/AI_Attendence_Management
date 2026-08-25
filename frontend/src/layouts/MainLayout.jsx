@@ -19,14 +19,17 @@ import {
   LogOut,
   ShieldCheck,
   UserCheck,
-  User
+  User,
+  BookOpen
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatTime } from '../utils/formatters';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const BASE_NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/live-attendance', label: 'Live Attendance', icon: Video },
+  { path: '/classes', label: 'Classes & Fields', icon: BookOpen },
   { path: '/students', label: 'Students', icon: GraduationCap },
   { path: '/teachers', label: 'Teachers', icon: Users, role: 'principal' },
   { path: '/attendance', label: 'Attendance', icon: ClipboardList },
@@ -39,6 +42,7 @@ const BASE_NAV_ITEMS = [
 export default function MainLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const { sessionActive, darkMode, setDarkMode, user, logout } = useApp();
   const location = useLocation();
@@ -53,10 +57,14 @@ export default function MainLayout() {
     setMobileOpen(false);
   }, [location.pathname]);
 
+  const NAV_ITEMS = BASE_NAV_ITEMS.filter(
+    item => !item.role || item.role === user?.role
+  );
+
   const currentRoute = NAV_ITEMS.find(item => item.path === location.pathname) || NAV_ITEMS[0];
 
   return (
-    <div className="min-h-screen flex bg-gray-50 transition-colors duration-300">
+    <div className="h-screen flex bg-gray-50 transition-colors duration-300 overflow-hidden">
       
       {/* Mobile Sidebar Overlay */}
       {mobileOpen && (
@@ -99,7 +107,6 @@ export default function MainLayout() {
         <nav className="flex-1 py-8 px-4 overflow-y-auto space-y-1.5 custom-scrollbar">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path;
             
             return (
               <NavLink
@@ -126,26 +133,18 @@ export default function MainLayout() {
         
         {/* Sidebar Footer */}
         <div className="p-4 border-t border-slate-800 space-y-2">
-          {user?.role === 'principal' && (
-            <button
-              onClick={() => navigate('/principal')}
-              className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : 'px-4'} py-3 rounded-xl text-emerald-400 hover:bg-emerald-900/30 transition-colors`}
-              title={sidebarCollapsed ? 'Principal Panel' : undefined}
-            >
-              <ShieldCheck className={`w-5 h-5 shrink-0 ${!sidebarCollapsed && 'mr-3'}`} />
-              {!sidebarCollapsed && <span className="font-medium text-sm">Principal Panel</span>}
-            </button>
-          )}
-          
           {!sidebarCollapsed && user && (
-            <div className="px-4 py-2">
+            <button 
+              onClick={() => navigate('/profile')}
+              className="w-full text-left px-4 py-2 hover:bg-slate-800 rounded-xl transition-colors"
+            >
               <p className="text-sm font-medium text-white truncate">{user.name}</p>
               <p className="text-xs text-slate-500 truncate">{user.email}</p>
-            </div>
+            </button>
           )}
 
           <button
-            onClick={() => { logout(); navigate('/login'); }}
+            onClick={() => setShowLogoutConfirm(true)}
             className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : 'px-4'} py-3 rounded-xl text-red-400 hover:bg-red-900/20 transition-colors`}
             title={sidebarCollapsed ? 'Logout' : undefined}
           >
@@ -156,9 +155,9 @@ export default function MainLayout() {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-300 relative">
+      <div className="flex-1 flex flex-col h-screen min-w-0 transition-all duration-300 relative overflow-y-auto custom-scrollbar">
         {/* Topbar */}
-        <header className="sticky top-0 right-0 left-0 h-16 bg-white shadow-sm z-40 flex items-center justify-between px-6 transition-colors duration-300">
+        <header className="sticky top-0 right-0 left-0 h-16 bg-white shadow-sm z-40 flex items-center justify-between px-6 transition-colors duration-300 shrink-0">
           <div className="flex items-center">
             <button 
               className="mr-4 lg:hidden text-gray-500 hover:text-gray-700"
@@ -194,6 +193,21 @@ export default function MainLayout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Logout Confirmation */}
+      <ConfirmDialog
+        isOpen={showLogoutConfirm}
+        onClose={() => setShowLogoutConfirm(false)}
+        onConfirm={() => {
+          setShowLogoutConfirm(false);
+          logout();
+          navigate('/login');
+        }}
+        title="Sign Out of Session?"
+        message="Are you sure you want to log out of AI Attendance Manager? Any unsaved changes may be lost."
+        confirmLabel="Yes, Sign Out"
+        danger={true}
+      />
     </div>
   );
 }

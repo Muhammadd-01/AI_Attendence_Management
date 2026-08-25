@@ -12,10 +12,10 @@ const Reports = React.lazy(() => import('./pages/Reports'));
 const Analytics = React.lazy(() => import('./pages/Analytics'));
 const Settings = React.lazy(() => import('./pages/Settings'));
 const Teachers = React.lazy(() => import('./pages/Teachers'));
+const Classes = React.lazy(() => import('./pages/Classes'));
 const Profile = React.lazy(() => import('./pages/Profile'));
 const StudentKiosk = React.lazy(() => import('./pages/StudentKiosk'));
 const LoginPage = React.lazy(() => import('./pages/LoginPage'));
-const PrincipalPanel = React.lazy(() => import('./pages/PrincipalPanel'));
 
 const Loader = () => (
   <div className="flex justify-center items-center h-full min-h-[200px]">
@@ -48,13 +48,6 @@ export default function App() {
         </Suspense>
       } />
 
-      {/* Principal Panel */}
-      <Route path="/principal" element={
-        <ProtectedRoute allowedRoles={['principal']}>
-          <Suspense fallback={<Loader />}><PrincipalPanel /></Suspense>
-        </ProtectedRoute>
-      } />
-
       {/* Admin Dashboard (Teacher + Principal) */}
       <Route path="/" element={
         <ProtectedRoute allowedRoles={['teacher', 'principal']}>
@@ -69,6 +62,7 @@ export default function App() {
             <Suspense fallback={<Loader />}><Teachers /></Suspense>
           </ProtectedRoute>
         } />
+        <Route path="classes" element={<Suspense fallback={<Loader />}><Classes /></Suspense>} />
         <Route path="attendance" element={<Suspense fallback={<Loader />}><Attendance /></Suspense>} />
         <Route path="reports" element={<Suspense fallback={<Loader />}><Reports /></Suspense>} />
         <Route path="analytics" element={<Suspense fallback={<Loader />}><Analytics /></Suspense>} />

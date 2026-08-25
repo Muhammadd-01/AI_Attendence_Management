@@ -106,6 +106,31 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Quick Fill Demo Credentials */}
+            <div className="pt-2 border-t border-slate-700/60">
+              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 text-center">
+                Quick Demo Accounts (Click to Fill)
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setEmail('principal@school.edu'); setPassword('admin123'); }}
+                  className="px-2.5 py-1.5 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-700/50 rounded-xl text-[11px] font-medium text-emerald-300 text-left transition-all"
+                >
+                  <span className="font-bold block text-emerald-400">👑 Principal Account</span>
+                  principal@school.edu / admin123
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEmail('teacher@school.edu'); setPassword('teacher123'); }}
+                  className="px-2.5 py-1.5 bg-primary-950/40 hover:bg-primary-900/60 border border-primary-700/50 rounded-xl text-[11px] font-medium text-primary-300 text-left transition-all"
+                >
+                  <span className="font-bold block text-primary-400">👨‍🏫 Teacher Account</span>
+                  teacher@school.edu / teacher123
+                </button>
+              </div>
+            </div>
+
             {/* Submit */}
             <button
               type="submit"

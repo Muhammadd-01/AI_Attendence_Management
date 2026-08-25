@@ -103,7 +103,7 @@ def get_today_attendance():
 
 def get_attendance_by_date(date_str):
     db = get_db()
-    query = db.collection('attendance').where('date', '==', date_str).order_by('created_at', direction=firestore.Query.DESCENDING)
+    query = db.collection('attendance').where('date', '==', date_str)
     docs = query.stream()
     
     results = []
@@ -112,6 +112,7 @@ def get_attendance_by_date(date_str):
         data['id'] = doc.id
         results.append(data)
         
+    results.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
     return results
 
 def get_student_attendance(student_id, start_date=None, end_date=None):
@@ -123,8 +124,6 @@ def get_student_attendance(student_id, start_date=None, end_date=None):
     if end_date:
         query = query.where('date', '<=', end_date)
         
-    query = query.order_by('date', direction=firestore.Query.DESCENDING)
-    
     docs = query.stream()
     results = []
     for doc in docs:
@@ -132,6 +131,7 @@ def get_student_attendance(student_id, start_date=None, end_date=None):
         data['id'] = doc.id
         results.append(data)
         
+    results.sort(key=lambda x: str(x.get('date', '')), reverse=True)
     return results
 
 def get_attendance_history(page=1, per_page=20, student_id=None, date=None, status=None, class_name=None):
@@ -145,12 +145,6 @@ def get_attendance_history(page=1, per_page=20, student_id=None, date=None, stat
     if status:
         query = query.where('status', '==', status)
         
-    # We can't filter by class_name easily unless we denormalize, assuming we don't for now or we filter post-query
-    # For a real app, you'd denormalize class_name into the attendance doc.
-    
-    query = query.order_by('created_at', direction=firestore.Query.DESCENDING)
-    
-    # Poor man's pagination (fetch all matching and slice, since firestore pagination requires cursors)
     docs = list(query.stream())
     
     results = []
@@ -159,9 +153,19 @@ def get_attendance_history(page=1, per_page=20, student_id=None, date=None, stat
         data['id'] = doc.id
         results.append(data)
         
+    results.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
     total = len(results)
     start = (page - 1) * per_page
     end = start + per_page
+    
+    paginated_results = results[start:end]
+    
+    return {
+        'records': paginated_results,
+        'total': total,
+        'page': page,
+        'per_page': per_page
+    }
     
     paginated_results = results[start:end]
     
@@ -342,14 +346,17 @@ def end_session(session_id):
     return None
 
 def get_active_session():
-    db = get_db()
-    query = db.collection('attendance_sessions').where('status', '==', 'active').order_by('start_time', direction=firestore.Query.DESCENDING).limit(1)
-    docs = list(query.stream())
-    
-    if docs:
-        data = docs[0].to_dict()
-        data['session_id'] = docs[0].id
-        return data
-    return None
+    try:
+        db = get_db()
+        query = db.collection('attendance_sessions').where('status', '==', 'active').limit(5)
+        docs = list(query.stream())
+        
+        if docs:
+            data = docs[0].to_dict()
+            data['session_id'] = docs[0].id
+            return data
+        return None
+    except Exception as e:
+        return None
 
 from firebase_admin import firestore

@@ -1,12 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, Search, Camera, Edit, Trash2, Eye, Filter, X, GraduationCap, ImagePlus, Loader2 } from 'lucide-react';
+import { UserPlus, Search, Camera, Edit, Trash2, Eye, Filter, X, GraduationCap, ImagePlus, Loader2, Fingerprint, Plus } from 'lucide-react';
 import Modal from '../components/Modal';
 import StatusBadge from '../components/StatusBadge';
 import ConfirmDialog from '../components/ConfirmDialog';
 import FaceCapture from '../components/FaceCapture';
+import BiometricModal from '../components/BiometricModal';
 import toast from 'react-hot-toast';
 import { useDebounce } from '../hooks/useDebounce';
+import { getStoredClasses, saveNewClass, getStoredDepartments, saveNewDepartment } from '../utils/academicData';
 
 const EMPTY_FORM = { student_id: '', name: '', email: '', class_name: 'CS-401', course: 'Artificial Intelligence' };
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.04 } } };
@@ -23,9 +25,18 @@ export default function Students() {
   const [showAdd, setShowAdd] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showCapture, setShowCapture] = useState(null);
+  const [showBiometric, setShowBiometric] = useState(null);
   const [showDelete, setShowDelete] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Dynamic Academic Options
+  const [classList, setClassList] = useState(getStoredClasses());
+  const [deptList, setDeptList] = useState(getStoredDepartments());
+  const [showNewClassInput, setShowNewClassInput] = useState(false);
+  const [newClassName, setNewClassName] = useState('');
+  const [showNewDeptInput, setShowNewDeptInput] = useState(false);
+  const [newDeptName, setNewDeptName] = useState('');
 
   const debouncedSearch = useDebounce(search, 300);
 
@@ -46,6 +57,19 @@ export default function Students() {
     }
   };
 
+  const getNextStudentId = (list) => {
+    let maxNum = 0;
+    list.forEach(s => {
+      const idStr = s.student_id || s.id || '';
+      const match = idStr.match(/(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxNum) maxNum = num;
+      }
+    });
+    return `ST${String(maxNum + 1).padStart(3, '0')}`;
+  };
+
   const filtered = useMemo(() => {
     return students.filter(s => {
       if (statusFilter !== 'all' && s.status !== statusFilter) return false;
@@ -60,8 +84,44 @@ export default function Students() {
     });
   }, [students, statusFilter, classFilter, debouncedSearch]);
 
-  const handleAdd = () => { setForm({ ...EMPTY_FORM }); setShowAdd(true); };
+  const handleAdd = () => {
+    const nextId = getNextStudentId(students);
+    const classes = getStoredClasses();
+    const depts = getStoredDepartments();
+    setClassList(classes);
+    setDeptList(depts);
+    setForm({
+      student_id: nextId,
+      name: '',
+      email: '',
+      class_name: classes[0] || 'CS-401',
+      course: depts[0] || 'Artificial Intelligence'
+    });
+    setShowNewClassInput(false);
+    setShowNewDeptInput(false);
+    setShowAdd(true);
+  };
   
+  const handleAddNewClass = () => {
+    if (!newClassName.trim()) return;
+    const updated = saveNewClass(newClassName);
+    setClassList(updated);
+    setForm(f => ({ ...f, class_name: newClassName.trim() }));
+    setNewClassName('');
+    setShowNewClassInput(false);
+    toast.success(`Class "${newClassName.trim()}" added!`);
+  };
+
+  const handleAddNewDept = () => {
+    if (!newDeptName.trim()) return;
+    const updated = saveNewDepartment(newDeptName);
+    setDeptList(updated);
+    setForm(f => ({ ...f, course: newDeptName.trim() }));
+    setNewDeptName('');
+    setShowNewDeptInput(false);
+    toast.success(`Department/Course "${newDeptName.trim()}" added!`);
+  };
+
   const handleSaveNew = async () => {
     if (!form.name || !form.student_id) return toast.error('Name and ID are required');
     setIsSubmitting(true);
@@ -75,7 +135,7 @@ export default function Students() {
       if (json.success) {
         setStudents([...students, json.data]);
         setShowAdd(false);
-        toast.success(`${form.name} registered`);
+        toast.success(`${form.name} (${form.student_id}) registered`);
       } else {
         toast.error(json.error || 'Failed to create student');
       }
@@ -86,7 +146,12 @@ export default function Students() {
     }
   };
 
-  const handleEditClick = (s) => { setForm(s); setShowEdit(true); };
+  const handleEditClick = (s) => { 
+    setForm(s); 
+    setClassList(getStoredClasses());
+    setDeptList(getStoredDepartments());
+    setShowEdit(true); 
+  };
   
   const handleSaveEdit = async () => {
     setIsSubmitting(true);
@@ -130,41 +195,128 @@ export default function Students() {
   const FormFields = () => (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Student ID (Roll Number)</label>
+        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+          Student ID (Roll Number - Auto Generated)
+        </label>
         <input 
           value={form.student_id} 
           onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))}
           readOnly={!!showEdit} 
-          className={`w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition ${showEdit ? 'bg-gray-50 text-gray-500' : ''}`}
+          className={`w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 outline-none ${showEdit ? 'cursor-not-allowed opacity-80' : ''}`}
           placeholder="e.g. ST001" 
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-        <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" placeholder="e.g. Muhammad Affan" />
+        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+          Full Name *
+        </label>
+        <input 
+          value={form.name} 
+          onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary-500 outline-none" 
+          placeholder="e.g. Muhammad Affan" 
+          required
+        />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-        <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" placeholder="student@example.com" />
+        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+          Email Address
+        </label>
+        <input 
+          type="email" 
+          value={form.email} 
+          onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary-500 outline-none" 
+          placeholder="student@example.com" 
+        />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
-          <select value={form.class_name} onChange={e => setForm(f => ({ ...f, class_name: e.target.value }))}
-            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary-500 outline-none transition">
-            <option value="CS-401">CS-401</option>
-            <option value="CS-402">CS-402</option>
-          </select>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+              Class
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowNewClassInput(!showNewClassInput)}
+              className="text-xs text-primary-600 font-semibold flex items-center gap-0.5 hover:underline"
+            >
+              <Plus className="w-3 h-3" /> Add New
+            </button>
+          </div>
+
+          {showNewClassInput ? (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newClassName}
+                onChange={e => setNewClassName(e.target.value)}
+                placeholder="Class Name (e.g. CS-404)"
+                className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary-500"
+              />
+              <button
+                type="button"
+                onClick={handleAddNewClass}
+                className="px-3 py-2 bg-primary-600 text-white rounded-xl text-xs font-semibold"
+              >
+                Save
+              </button>
+            </div>
+          ) : (
+            <select 
+              value={form.class_name} 
+              onChange={e => setForm(f => ({ ...f, class_name: e.target.value }))}
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary-500 outline-none"
+            >
+              {classList.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
         </div>
+
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Course</label>
-          <select value={form.course} onChange={e => setForm(f => ({ ...f, course: e.target.value }))}
-            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary-500 outline-none transition">
-            <option>Artificial Intelligence</option>
-            <option>Data Science</option>
-          </select>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+              Department / Course
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowNewDeptInput(!showNewDeptInput)}
+              className="text-xs text-emerald-600 font-semibold flex items-center gap-0.5 hover:underline"
+            >
+              <Plus className="w-3 h-3" /> Add New
+            </button>
+          </div>
+
+          {showNewDeptInput ? (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newDeptName}
+                onChange={e => setNewDeptName(e.target.value)}
+                placeholder="Course/Department Name"
+                className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <button
+                type="button"
+                onClick={handleAddNewDept}
+                className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold"
+              >
+                Save
+              </button>
+            </div>
+          ) : (
+            <select 
+              value={form.course} 
+              onChange={e => setForm(f => ({ ...f, course: e.target.value }))}
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary-500 outline-none"
+            >
+              {deptList.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
     </div>
@@ -205,78 +357,131 @@ export default function Students() {
         </select>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-500 bg-gray-50/50">
-                <th className="px-6 py-4 font-medium">ID</th>
-                <th className="px-6 py-4 font-medium">Name</th>
-                <th className="px-6 py-4 font-medium">Class</th>
-                <th className="px-6 py-4 font-medium">Email</th>
-                <th className="px-6 py-4 font-medium">Face Dataset</th>
-                <th className="px-6 py-4 font-medium">Status</th>
-                <th className="px-6 py-4 font-medium">Attendance</th>
-                <th className="px-6 py-4 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <motion.tbody variants={container} initial="hidden" animate="show" className="divide-y divide-gray-50">
-              {filtered.map(s => (
-                <motion.tr key={s.student_id} variants={row} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="px-6 py-4 font-mono text-xs text-gray-500">{s.student_id}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center text-xs font-bold">
-                        {s.name.split(' ').map(n => n[0]).join('')}
+      {/* Students Cards Grid */}
+      <div className="w-full">
+        {loading ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center py-20 text-gray-400">
+            <Loader2 className="w-8 h-8 animate-spin text-primary-600 mb-2" />
+            <p className="text-sm">Loading students from database...</p>
+          </div>
+        ) : (
+          <motion.div 
+            variants={container} 
+            initial="hidden" 
+            animate="show" 
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+          >
+            {filtered.map(s => (
+              <motion.div 
+                key={s.student_id} 
+                variants={row} 
+                className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-all flex flex-col"
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex items-center gap-3">
+                    {s.avatar_url ? (
+                      <img 
+                        src={s.avatar_url} 
+                        alt={s.name} 
+                        className="w-12 h-12 rounded-2xl object-cover border border-primary-200 shadow-sm" 
+                      />
+                    ) : (
+                      <div className="w-12 h-12 bg-primary-100 text-primary-700 rounded-2xl flex items-center justify-center font-bold text-lg">
+                        {(s.name || 'S').split(' ').map(n => n[0]).join('').slice(0, 2)}
                       </div>
-                      <span className="font-medium text-gray-900">{s.name}</span>
+                    )}
+                    <div>
+                      <p className="font-semibold text-gray-900 leading-tight truncate max-w-[140px]">{s.name}</p>
+                      <p className="text-[11px] font-mono text-gray-400">{s.student_id}</p>
                     </div>
-                  </td>
-                  <td className="px-6 py-4 text-gray-600">{s.class_name}</td>
-                  <td className="px-6 py-4 text-gray-500 text-xs">{s.email}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(s.face_count, 100)}%` }}
-                          transition={{ delay: 0.3, duration: 0.6, ease: 'easeOut' }}
-                          className={`h-full rounded-full ${s.face_count >= 100 ? 'bg-success' : s.face_count >= 50 ? 'bg-warning' : 'bg-danger'}`} />
+                  </div>
+                  
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
+                      s.status === 'inactive' ? 'bg-gray-100 text-gray-500' : 'bg-primary-50 text-primary-600'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${s.status === 'inactive' ? 'bg-gray-400' : 'bg-primary-500'}`} />
+                      {s.status || 'Active'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-3 mt-auto">
+                  <div className="flex items-center justify-between border-t border-gray-50 pt-3">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase font-semibold text-gray-400 tracking-wider">Class</span>
+                      <span className="text-sm font-medium text-gray-700">{s.class_name || 'CS-401'}</span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-[10px] uppercase font-semibold text-gray-400 tracking-wider">Attendance</span>
+                      <span className={`text-sm font-bold ${s.attendance_pct >= 80 ? 'text-success' : s.attendance_pct >= 60 ? 'text-warning' : 'text-danger'}`}>
+                        {s.attendance_pct || 0}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-medium text-gray-500">Face Dataset</span>
+                        <span className="text-[10px] font-medium text-gray-500">{s.face_count || 0}/100</span>
                       </div>
-                      <span className="text-xs text-gray-500">{s.face_count}/100</span>
+                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden w-full">
+                        <motion.div 
+                          initial={{ width: 0 }} 
+                          animate={{ width: `${Math.min((s.face_count || 0), 100)}%` }}
+                          transition={{ delay: 0.2, duration: 0.6 }}
+                          className={`h-full rounded-full ${s.face_count >= 100 ? 'bg-success' : s.face_count >= 50 ? 'bg-warning' : 'bg-danger'}`} 
+                        />
+                      </div>
                     </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`badge ${s.status === 'active' ? 'badge-present' : 'badge-absent'}`}>
-                      {s.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`font-semibold ${s.attendance_pct >= 80 ? 'text-success' : s.attendance_pct >= 60 ? 'text-warning' : 'text-danger'}`}>
-                      {s.attendance_pct}%
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => handleEditClick(s)} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" title="Edit">
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => setShowCapture(s)} className="p-1.5 text-gray-400 hover:text-success hover:bg-green-50 rounded-lg transition-colors" title="Capture Faces">
-                        <Camera className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => setShowDelete(s)} className="p-1.5 text-gray-400 hover:text-danger hover:bg-red-50 rounded-lg transition-colors" title="Deactivate">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </motion.tr>
-              ))}
-            </motion.tbody>
-          </table>
-        </div>
-        {filtered.length === 0 && (
-          <div className="text-center py-16 text-gray-400">
-            <GraduationCap className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No students found</p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-end gap-1.5 pt-3 border-t border-gray-50">
+                    <button 
+                      onClick={() => setShowCapture(s)} 
+                      className="flex-1 flex items-center justify-center gap-1 p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors text-xs font-semibold" 
+                      title="Capture Face Dataset"
+                    >
+                      <Camera className="w-3.5 h-3.5" /> Faces
+                    </button>
+                    <button 
+                      onClick={() => setShowBiometric(s)} 
+                      className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-xl transition-colors text-xs font-semibold ${
+                        s.biometric_enrolled 
+                          ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' 
+                          : 'bg-purple-50 text-purple-600 hover:bg-purple-100'
+                      }`}
+                      title="Hardware Touch ID / Fingerprint Biometric"
+                    >
+                      <Fingerprint className="w-3.5 h-3.5" /> {s.biometric_enrolled ? 'Touch ID ✓' : 'Fingerprint'}
+                    </button>
+                    <button 
+                      onClick={() => handleEditClick(s)} 
+                      className="p-2 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-xl transition-colors" 
+                      title="Edit Student"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => setShowDelete(s)} 
+                      className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors" 
+                      title="Delete Student"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </motion.div>
+        )}
+
+        {!loading && filtered.length === 0 && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 text-center py-16 text-gray-400">
+            <GraduationCap className="w-12 h-12 mx-auto mb-3 opacity-30 text-primary-600" />
+            <p className="font-semibold text-gray-700">No students found</p>
             <p className="text-sm mt-1">Try adjusting your filters or add a new student</p>
           </div>
         )}
@@ -307,10 +512,43 @@ export default function Students() {
       {/* Face Capture Modal */}
       {showCapture && (
         <Modal isOpen={!!showCapture} onClose={() => setShowCapture(null)} title={`Capture Faces — ${showCapture.name}`} size="xl">
-          <FaceCapture studentId={showCapture.student_id} studentName={showCapture.name}
-            onComplete={() => { setShowCapture(null); toast.success('Face capture complete!'); }}
-            onClose={() => setShowCapture(null)} />
+          <FaceCapture 
+            personId={showCapture.student_id} 
+            personName={showCapture.name}
+            bucket="student-faces"
+            onComplete={async (bestImageUrl, count) => {
+              try {
+                if (bestImageUrl) {
+                  await fetch(`/api/students/${showCapture.student_id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ avatar_url: bestImageUrl, face_count: count })
+                  });
+                }
+                setStudents(prev => prev.map(st => st.student_id === showCapture.student_id ? { ...st, avatar_url: bestImageUrl || st.avatar_url, face_count: count } : st));
+                toast.success('Student face model and card photo updated!');
+              } catch (err) {
+                console.error(err);
+              }
+              setShowCapture(null);
+            }}
+            onClose={() => setShowCapture(null)} 
+          />
         </Modal>
+      )}
+
+      {/* Biometric Fingerprint Modal */}
+      {showBiometric && (
+        <BiometricModal
+          isOpen={!!showBiometric}
+          onClose={() => setShowBiometric(null)}
+          person={showBiometric}
+          role="student"
+          onEnrolled={(credId) => {
+            setStudents(prev => prev.map(st => st.student_id === showBiometric.student_id ? { ...st, biometric_enrolled: true, biometric_credential_id: credId } : st));
+            setShowBiometric(null);
+          }}
+        />
       )}
 
       <ConfirmDialog isOpen={!!showDelete} onClose={() => setShowDelete(null)} onConfirm={handleDelete}

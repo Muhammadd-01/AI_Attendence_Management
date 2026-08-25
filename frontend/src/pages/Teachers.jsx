@@ -3,14 +3,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Users, UserPlus, Search, Trash2, Mail, Lock, Eye, EyeOff, 
   Copy, CheckCircle2, Shield, UserCheck, AlertCircle, RefreshCw,
-  Key, Sparkles, Filter, MoreVertical, Loader2
+  Key, Sparkles, Filter, MoreVertical, Loader2, Camera, Fingerprint, Plus
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
+import FaceCapture from '../components/FaceCapture';
+import BiometricModal from '../components/BiometricModal';
 import { useDebounce } from '../hooks/useDebounce';
+import { getStoredClasses, saveNewClass, getStoredDepartments, saveNewDepartment } from '../utils/academicData';
 
-const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } };
+const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.04 } } };
 const item = { hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0 } };
 
 export default function Teachers() {
@@ -21,13 +24,24 @@ export default function Teachers() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(null);
+  const [showCapture, setShowCapture] = useState(null);
+  const [showBiometric, setShowBiometric] = useState(null);
   
+  // Dynamic Academic Options
+  const [classList, setClassList] = useState(getStoredClasses());
+  const [deptList, setDeptList] = useState(getStoredDepartments());
+  const [showNewClassInput, setShowNewClassInput] = useState(false);
+  const [newClassName, setNewClassName] = useState('');
+  const [showNewDeptInput, setShowNewDeptInput] = useState(false);
+  const [newDeptName, setNewDeptName] = useState('');
+
   // Form State
+  const [teacherId, setTeacherId] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [department, setDepartment] = useState('Computer Science');
-  const [assignedClass, setAssignedClass] = useState('CS-401');
-  const [generatedPassword, setGeneratedPassword] = useState('');
+  const [department, setDepartment] = useState('');
+  const [assignedClass, setAssignedClass] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -54,27 +68,67 @@ export default function Teachers() {
     }
   };
 
-  const generatePassword = () => {
+  const getNextTeacherId = (list) => {
+    let maxNum = 0;
+    list.forEach(t => {
+      const idStr = t.teacher_id || t.id || '';
+      const match = idStr.match(/(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxNum) maxNum = num;
+      }
+    });
+    return `TCH${String(maxNum + 1).padStart(3, '0')}`;
+  };
+
+  const generateRandomPassword = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$';
     let pwd = '';
-    for (let i = 0; i < 12; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+    for (let i = 0; i < 10; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
     return pwd;
   };
 
   const handleOpenAdd = () => {
+    const nextId = getNextTeacherId(teachers);
+    setTeacherId(nextId);
     setName('');
     setEmail('');
-    setDepartment('Computer Science');
-    setAssignedClass('CS-401');
-    const pwd = generatePassword();
-    setGeneratedPassword(pwd);
+    const currentDepts = getStoredDepartments();
+    const currentClasses = getStoredClasses();
+    setDeptList(currentDepts);
+    setClassList(currentClasses);
+    setDepartment(currentDepts[0] || 'Computer Science');
+    setAssignedClass(currentClasses[0] || 'CS-401');
+    setPassword(generateRandomPassword());
     setShowPassword(false);
+    setShowNewClassInput(false);
+    setShowNewDeptInput(false);
     setShowAddModal(true);
+  };
+
+  const handleAddNewClass = () => {
+    if (!newClassName.trim()) return;
+    const updated = saveNewClass(newClassName);
+    setClassList(updated);
+    setAssignedClass(newClassName.trim());
+    setNewClassName('');
+    setShowNewClassInput(false);
+    toast.success(`Class "${newClassName.trim()}" added!`);
+  };
+
+  const handleAddNewDept = () => {
+    if (!newDeptName.trim()) return;
+    const updated = saveNewDepartment(newDeptName);
+    setDeptList(updated);
+    setDepartment(newDeptName.trim());
+    setNewDeptName('');
+    setShowNewDeptInput(false);
+    toast.success(`Department "${newDeptName.trim()}" added!`);
   };
 
   const handleCreateTeacher = async (e) => {
     e.preventDefault();
-    if (!name || !email) return toast.error('Please enter name and email');
+    if (!name || !email || !password) return toast.error('Please fill in all required fields');
     
     setSubmitting(true);
     try {
@@ -82,18 +136,20 @@ export default function Teachers() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          teacher_id: teacherId,
           name,
           email,
           department,
           assigned_class: assignedClass,
-          password: generatedPassword,
+          password: password,
           status: 'active'
         })
       });
       const json = await res.json();
       if (json.success || json.status === 'success') {
         setTeachers(prev => [json.data, ...prev]);
-        toast.success(`Teacher account created for ${name}!`);
+        setShowAddModal(false);
+        toast.success(`Faculty account created for ${name} (${teacherId})!`);
       } else {
         toast.error(json.message || json.error || 'Failed to create teacher');
       }
@@ -134,6 +190,7 @@ export default function Teachers() {
         const q = debouncedSearch.toLowerCase();
         return (t.name || '').toLowerCase().includes(q) || 
                (t.email || '').toLowerCase().includes(q) ||
+               (t.teacher_id || '').toLowerCase().includes(q) ||
                (t.department || '').toLowerCase().includes(q);
       }
       return true;
@@ -145,21 +202,16 @@ export default function Teachers() {
       {/* Top Banner / Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-gray-900">Faculty & Teachers</h1>
-            <span className="bg-emerald-100 text-emerald-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-              Godfather Control
-            </span>
-          </div>
-          <p className="text-gray-500 text-sm mt-1">
-            Manage teacher accounts, issue credentials, and configure classroom permissions
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Faculty & Teachers</h1>
+          <p className="text-slate-500 text-sm mt-0.5">
+            Manage teacher accounts, passwords, biometric access, and assigned classes
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button
             onClick={fetchTeachers}
-            className="p-2.5 border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-100 transition-colors"
+            className="p-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition-colors"
             title="Refresh database"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -168,7 +220,7 @@ export default function Teachers() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={handleOpenAdd}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-sm transition-all"
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-semibold shadow-md shadow-emerald-600/20 transition-all text-sm"
           >
             <UserPlus className="w-4 h-4" /> Add Teacher
           </motion.button>
@@ -177,34 +229,34 @@ export default function Teachers() {
 
       {/* Overview Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700/60 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Faculty</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{teachers.length}</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Faculty</p>
+            <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{teachers.length}</p>
           </div>
-          <div className="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center text-primary-600">
+          <div className="w-12 h-12 bg-primary-50 dark:bg-primary-950/40 rounded-2xl flex items-center justify-center text-primary-600">
             <Users className="w-6 h-6" />
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700/60 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Active Teachers</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Active Teachers</p>
             <p className="text-2xl font-bold text-emerald-600 mt-1">
               {teachers.filter(t => t.status !== 'inactive').length}
             </p>
           </div>
-          <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
+          <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl flex items-center justify-center text-emerald-600">
             <UserCheck className="w-6 h-6" />
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700/60 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Auth Method</p>
-            <p className="text-lg font-bold text-purple-600 mt-1">Firebase + Biometrics</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Auth & Biometrics</p>
+            <p className="text-lg font-bold text-purple-600 dark:text-purple-400 mt-1">Touch ID + Facial</p>
           </div>
-          <div className="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center text-purple-600">
+          <div className="w-12 h-12 bg-purple-50 dark:bg-purple-950/40 rounded-2xl flex items-center justify-center text-purple-600">
             <Key className="w-6 h-6" />
           </div>
         </div>
@@ -213,18 +265,18 @@ export default function Teachers() {
       {/* Filter & Search Bar */}
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[220px]">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search teacher by name, email, department..."
-            className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition bg-white"
+            placeholder="Search teacher by name, ID, email, department..."
+            className="w-full pl-10 pr-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 outline-none transition bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 shadow-sm"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none transition bg-white"
+          className="border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none transition bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 shadow-sm"
         >
           <option value="all">All Status</option>
           <option value="active">Active</option>
@@ -232,90 +284,132 @@ export default function Teachers() {
         </select>
       </div>
 
-      {/* Teachers Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      {/* Teachers Cards Grid */}
+      <div className="w-full">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center py-20 text-slate-400">
             <Loader2 className="w-8 h-8 animate-spin text-emerald-600 mb-2" />
-            <p className="text-sm">Connecting to Firebase Firestore...</p>
+            <p className="text-sm">Connecting to Firestore...</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 bg-gray-50/70 border-b border-gray-100">
-                  <th className="px-6 py-4 font-medium">Teacher</th>
-                  <th className="px-6 py-4 font-medium">Email Address</th>
-                  <th className="px-6 py-4 font-medium">Department</th>
-                  <th className="px-6 py-4 font-medium">Assigned Class</th>
-                  <th className="px-6 py-4 font-medium">Status</th>
-                  <th className="px-6 py-4 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <motion.tbody variants={container} initial="hidden" animate="show" className="divide-y divide-gray-50">
-                {filteredTeachers.map((t) => (
-                  <motion.tr key={t.id} variants={item} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 bg-emerald-100 text-emerald-800 rounded-xl flex items-center justify-center font-bold text-sm">
-                          {(t.name || 'T').split(' ').map(n => n[0]).join('').slice(0, 2)}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-gray-900">{t.name}</p>
-                          <p className="text-xs text-gray-400">ID: {t.id.slice(0, 8)}</p>
-                        </div>
+          <motion.div 
+            variants={container} 
+            initial="hidden" 
+            animate="show" 
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
+          >
+            {filteredTeachers.map((t) => (
+              <motion.div
+                key={t.id}
+                variants={item}
+                className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-100 dark:border-slate-700/60 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex items-center gap-3">
+                    {t.avatar_url ? (
+                      <img 
+                        src={t.avatar_url} 
+                        alt={t.name} 
+                        className="w-12 h-12 rounded-2xl object-cover border border-emerald-500/50 shadow-sm" 
+                      />
+                    ) : (
+                      <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 rounded-2xl flex items-center justify-center font-bold text-lg border border-emerald-200 dark:border-emerald-800/40">
+                        {(t.name || 'T').split(' ').map(n => n[0]).join('').slice(0, 2)}
                       </div>
-                    </td>
-                    <td className="px-6 py-4 text-gray-600 font-mono text-xs">
-                      {t.email}
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">
-                      {t.department || 'Computer Science'}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold">
-                        {t.assigned_class || 'CS-401'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                        t.status === 'inactive' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700'
+                    )}
+                    <div>
+                      <p className="font-semibold text-slate-900 dark:text-slate-100 leading-tight">{t.name}</p>
+                      <p className="text-xs font-mono text-slate-400 mt-0.5">{t.teacher_id || t.id}</p>
+                      <span className={`inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
+                        t.status === 'inactive' ? 'bg-slate-100 text-slate-500' : 'bg-emerald-50 text-emerald-600'
                       }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${t.status === 'inactive' ? 'bg-gray-400' : 'bg-emerald-500'}`} />
+                        <span className={`w-1.5 h-1.5 rounded-full ${t.status === 'inactive' ? 'bg-slate-400' : 'bg-emerald-500'}`} />
                         {t.status === 'inactive' ? 'Inactive' : 'Active'}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => setShowDeleteDialog(t)}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete teacher"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </motion.tr>
-                ))}
-              </motion.tbody>
-            </table>
-          </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setShowCapture(t)}
+                      className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                      title="Capture Faces"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setShowBiometric(t)}
+                      className={`p-1.5 rounded-lg transition-colors ${
+                        t.biometric_enrolled 
+                          ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40' 
+                          : 'text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-slate-700'
+                      }`}
+                      title={t.biometric_enrolled ? "Touch ID Biometric Enrolled" : "Enroll Touch ID / Fingerprint"}
+                    >
+                      <Fingerprint className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteDialog(t)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                      title="Remove Teacher"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="space-y-3 mt-auto">
+                  <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                    <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span className="truncate">{t.email}</span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between border-t border-slate-50 dark:border-slate-700/50 pt-3 mt-3">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Department</span>
+                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{t.department || 'General'}</span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Class</span>
+                      <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">{t.assigned_class || 'CS-401'}</span>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </motion.div>
         )}
 
         {!loading && filteredTeachers.length === 0 && (
-          <div className="text-center py-16 text-gray-400">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 text-center py-16 text-slate-400">
             <Users className="w-12 h-12 mx-auto mb-3 opacity-30 text-emerald-600" />
-            <p className="font-semibold text-gray-700">No teachers found in database</p>
-            <p className="text-sm mt-1 text-gray-400">Click &ldquo;Add Teacher&rdquo; to register your first faculty member</p>
+            <p className="font-semibold text-slate-700 dark:text-slate-200">No teachers found</p>
+            <p className="text-xs text-slate-400 mt-1">Add faculty accounts using the button above.</p>
           </div>
         )}
       </div>
 
       {/* Add Teacher Modal */}
-      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Create Teacher Account" size="lg">
+      <Modal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title="Add Faculty / Teacher Account"
+        size="lg"
+      >
         <form onSubmit={handleCreateTeacher} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                Teacher ID (Auto-Generated)
+              </label>
+              <input
+                type="text"
+                value={teacherId}
+                readOnly
+                className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-slate-600 dark:text-slate-300 outline-none cursor-not-allowed"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
                 Full Name *
               </label>
               <input
@@ -324,75 +418,141 @@ export default function Teachers() {
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Professor Ali Khan"
                 required
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
-                Email Address *
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="teacher@school.edu"
-                required
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none text-slate-800 dark:text-slate-100"
               />
             </div>
           </div>
 
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+              Email Address *
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="teacher@school.edu"
+              required
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none text-slate-800 dark:text-slate-100"
+            />
+          </div>
+
+          {/* Department & Class Selectors with Inline "+ Add New" */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
-                Department
-              </label>
-              <select
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
-              >
-                <option>Computer Science</option>
-                <option>Artificial Intelligence</option>
-                <option>Data Science & Analytics</option>
-                <option>Software Engineering</option>
-              </select>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  Department / Field
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowNewDeptInput(!showNewDeptInput)}
+                  className="text-xs text-emerald-600 font-semibold flex items-center gap-0.5 hover:underline"
+                >
+                  <Plus className="w-3 h-3" /> Add New
+                </button>
+              </div>
+
+              {showNewDeptInput ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newDeptName}
+                    onChange={e => setNewDeptName(e.target.value)}
+                    placeholder="New Field Name"
+                    className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddNewDept}
+                    className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold"
+                  >
+                    Save
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                >
+                  {deptList.map(dept => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
+              )}
             </div>
+
             <div>
-              <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
-                Assigned Classroom
-              </label>
-              <select
-                value={assignedClass}
-                onChange={(e) => setAssignedClass(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
-              >
-                <option value="CS-401">CS-401 (AI Lab)</option>
-                <option value="CS-402">CS-402 (Data Science Lab)</option>
-                <option value="CS-403">CS-403 (Robotics Wing)</option>
-              </select>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  Assigned Class
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowNewClassInput(!showNewClassInput)}
+                  className="text-xs text-primary-600 font-semibold flex items-center gap-0.5 hover:underline"
+                >
+                  <Plus className="w-3 h-3" /> Add New
+                </button>
+              </div>
+
+              {showNewClassInput ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newClassName}
+                    onChange={e => setNewClassName(e.target.value)}
+                    placeholder="New Class (e.g. CS-501)"
+                    className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddNewClass}
+                    className="px-3 py-2 bg-primary-600 text-white rounded-xl text-xs font-semibold"
+                  >
+                    Save
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={assignedClass}
+                  onChange={(e) => setAssignedClass(e.target.value)}
+                  className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                >
+                  {classList.map(cls => (
+                    <option key={cls} value={cls}>{cls}</option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
 
-          {/* Generated Password Box */}
-          <div className="bg-slate-900 text-white rounded-xl p-4 mt-4">
+          {/* Password Section (Manual Entry or Auto-Generate) */}
+          <div className="bg-slate-900 text-white rounded-2xl p-4 mt-4 border border-slate-800">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-emerald-400 font-semibold uppercase tracking-wider flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" /> Auto-Generated Password
+                <Lock className="w-3.5 h-3.5" /> Teacher Account Password
               </span>
               <button
                 type="button"
-                onClick={() => setGeneratedPassword(generatePassword())}
-                className="text-xs text-slate-400 hover:text-white underline"
+                onClick={() => setPassword(generateRandomPassword())}
+                className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1 underline"
               >
-                Regenerate
+                <Sparkles className="w-3 h-3" /> Auto-Generate
               </button>
             </div>
-            <div className="flex items-center justify-between bg-slate-800 rounded-lg p-3">
-              <span className="font-mono text-sm tracking-wider">
-                {showPassword ? generatedPassword : '••••••••••••'}
-              </span>
-              <div className="flex items-center gap-2">
+
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password or use auto-generated"
+                required
+                className="w-full bg-slate-800 text-white font-mono text-sm border border-slate-700 rounded-xl pl-4 pr-20 py-3 focus:ring-2 focus:ring-emerald-500 outline-none"
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
@@ -402,7 +562,7 @@ export default function Teachers() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => copyToClipboard(generatedPassword, 'Password')}
+                  onClick={() => copyToClipboard(password, 'Password')}
                   className="text-slate-400 hover:text-emerald-400 p-1"
                   title="Copy password"
                 >
@@ -410,16 +570,16 @@ export default function Teachers() {
                 </button>
               </div>
             </div>
-            <p className="text-xs text-slate-400 mt-2">
-              This credential will be saved in Firebase and can be shared directly with the teacher.
+            <p className="text-[11px] text-slate-400 mt-2">
+              You can manually type a custom password or click Auto-Generate.
             </p>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">
             <button
               type="button"
               onClick={() => setShowAddModal(false)}
-              className="px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+              className="px-4 py-2.5 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors font-medium"
             >
               Cancel
             </button>
@@ -430,7 +590,7 @@ export default function Teachers() {
               className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold shadow-md transition-all disabled:opacity-50"
             >
               {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-              {submitting ? 'Saving to Firebase...' : 'Create Account'}
+              {submitting ? 'Saving to Database...' : 'Create Account'}
             </motion.button>
           </div>
         </form>
@@ -446,6 +606,53 @@ export default function Teachers() {
         confirmLabel="Remove Teacher"
         danger
       />
+
+      {/* Face Capture Modal */}
+      {showCapture && (
+        <Modal 
+          isOpen={!!showCapture} 
+          onClose={() => setShowCapture(null)} 
+          title={`Capture Faculty Biometrics — ${showCapture.name}`} 
+          size="xl"
+        >
+          <FaceCapture 
+            personId={showCapture.id} 
+            personName={showCapture.name}
+            bucket="student-faces"
+            onComplete={async (bestImageUrl) => { 
+              try {
+                if (bestImageUrl) {
+                  await fetch(`/api/teachers/${showCapture.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ avatar_url: bestImageUrl })
+                  });
+                }
+                setTeachers(prev => prev.map(tc => tc.id === showCapture.id ? { ...tc, avatar_url: bestImageUrl || tc.avatar_url } : tc));
+                toast.success('Faculty face model and card photo updated!');
+              } catch (err) {
+                console.error(err);
+              }
+              setShowCapture(null); 
+            }}
+            onClose={() => setShowCapture(null)} 
+          />
+        </Modal>
+      )}
+
+      {/* Biometric Touch ID Modal */}
+      {showBiometric && (
+        <BiometricModal
+          isOpen={!!showBiometric}
+          onClose={() => setShowBiometric(null)}
+          person={showBiometric}
+          role="teacher"
+          onEnrolled={(credId) => {
+            setTeachers(prev => prev.map(tc => tc.id === showBiometric.id ? { ...tc, biometric_enrolled: true, biometric_credential_id: credId } : tc));
+            setShowBiometric(null);
+          }}
+        />
+      )}
     </motion.div>
   );
 }

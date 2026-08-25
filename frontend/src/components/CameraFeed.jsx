@@ -1,9 +1,45 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Camera, AlertCircle } from 'lucide-react';
 
-export default function CameraFeed({ streamUrl = '/video_feed', active = false, className = '' }) {
+const CameraFeed = forwardRef(({ streamUrl = '/video_feed', active = false, className = '' }, ref) => {
   const [hasError, setHasError] = useState(false);
   const videoRef = useRef(null);
+  const imgRef = useRef(null);
+  const canvasRef = useRef(null);
+
+  useImperativeHandle(ref, () => ({
+    captureFrame: async () => {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      
+      let sourceElement = null;
+      if (!hasError && imgRef.current) {
+        sourceElement = imgRef.current;
+        canvas.width = imgRef.current.naturalWidth || 640;
+        canvas.height = imgRef.current.naturalHeight || 480;
+      } else if (hasError && videoRef.current) {
+        sourceElement = videoRef.current;
+        canvas.width = videoRef.current.videoWidth || 640;
+        canvas.height = videoRef.current.videoHeight || 480;
+      }
+
+      if (!sourceElement || canvas.width === 0) return null;
+
+      if (hasError) {
+        // Handle webcam mirror flip
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
+      
+      ctx.drawImage(sourceElement, 0, 0, canvas.width, canvas.height);
+      
+      return new Promise((resolve) => {
+        canvas.toBlob((blob) => {
+          resolve(blob);
+        }, 'image/jpeg', 0.85);
+      });
+    }
+  }));
 
   // Fallback to local webcam if backend stream is not available
   useEffect(() => {
@@ -43,7 +79,9 @@ export default function CameraFeed({ streamUrl = '/video_feed', active = false, 
       
       {!hasError ? (
         <img 
+          ref={imgRef}
           src={streamUrl} 
+          crossOrigin="anonymous"
           alt="Backend Camera Feed" 
           className="w-full h-full object-cover"
           onError={() => {
@@ -59,6 +97,9 @@ export default function CameraFeed({ streamUrl = '/video_feed', active = false, 
           className="w-full h-full object-cover transform -scale-x-100"
         />
       )}
+      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
-}
+});
+
+export default CameraFeed;

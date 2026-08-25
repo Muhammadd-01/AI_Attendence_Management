@@ -1,28 +1,30 @@
 from flask import Blueprint, request
 from app.utils.helpers import success_response, error_response
-# Placeholder for settings_service
-# from app.services import settings_service
+from app.models import settings
 
 settings_bp = Blueprint('settings', __name__)
 
-@settings_bp.route('/api/settings', methods=['GET'])
+@settings_bp.route('', methods=['GET'])
 def get_settings():
     try:
-        return success_response({"message": "Settings placeholder"})
+        data = settings.get_settings()
+        return success_response(data)
     except Exception as e:
         return error_response(str(e))
 
-@settings_bp.route('/api/settings', methods=['PUT'])
+@settings_bp.route('', methods=['PUT'])
 def update_settings():
     try:
-        data = request.json
-        return success_response({"message": "Settings updated", "data": data})
+        data = request.json or {}
+        updated = settings.update_settings(data)
+        return success_response(updated)
     except Exception as e:
         return error_response(str(e))
 
-@settings_bp.route('/api/settings/reset', methods=['POST'])
+@settings_bp.route('/reset', methods=['POST'])
 def reset_settings():
     try:
-        return success_response({"message": "Settings reset"})
+        data = settings.reset_settings()
+        return success_response(data)
     except Exception as e:
         return error_response(str(e))

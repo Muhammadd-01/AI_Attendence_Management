@@ -6,34 +6,30 @@ from app.utils.helpers import success_response, error_response
 
 attendance_bp = Blueprint('attendance', __name__)
 
-@attendance_bp.route('/api/attendance', methods=['GET'])
+@attendance_bp.route('', methods=['GET'])
 def get_history():
     try:
-        # history = attendance_service.get_history()
         return success_response({"message": "History placeholder"})
     except Exception as e:
         return error_response(str(e))
 
-@attendance_bp.route('/api/attendance/today', methods=['GET'])
+@attendance_bp.route('/today', methods=['GET'])
 def get_today_attendance():
     try:
-        # today = attendance_service.get_today()
         return success_response({"message": "Today attendance placeholder"})
     except Exception as e:
         return error_response(str(e))
 
-@attendance_bp.route('/api/attendance/student/<student_id>', methods=['GET'])
+@attendance_bp.route('/student/<student_id>', methods=['GET'])
 def get_student_history(student_id):
     try:
-        # history = attendance_service.get_student_history(student_id)
         return success_response({"message": f"Student {student_id} history placeholder"})
     except Exception as e:
         return error_response(str(e))
 
-@attendance_bp.route('/api/attendance/finalize', methods=['POST'])
+@attendance_bp.route('/finalize', methods=['POST'])
 def finalize_session():
     try:
-        # result = attendance_service.finalize_session()
         return success_response({"message": "Session finalized placeholder"})
     except Exception as e:
         return error_response(str(e))

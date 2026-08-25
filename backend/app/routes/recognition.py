@@ -4,7 +4,7 @@ from app.utils.helpers import success_response, error_response
 
 recognition_bp = Blueprint('recognition', __name__)
 
-@recognition_bp.route('/api/recognition/start', methods=['POST'])
+@recognition_bp.route('/start', methods=['POST'])
 def start_session():
     try:
         result = recognition_service.start_session()
@@ -12,7 +12,7 @@ def start_session():
     except Exception as e:
         return error_response(str(e))
 
-@recognition_bp.route('/api/recognition/stop', methods=['POST'])
+@recognition_bp.route('/stop', methods=['POST'])
 def stop_session():
     try:
         result = recognition_service.stop_session()
@@ -20,7 +20,7 @@ def stop_session():
     except Exception as e:
         return error_response(str(e))
 
-@recognition_bp.route('/api/recognition/status', methods=['GET'])
+@recognition_bp.route('/status', methods=['GET'])
 def get_status():
     try:
         status = recognition_service.get_status()
@@ -28,7 +28,7 @@ def get_status():
     except Exception as e:
         return error_response(str(e))
 
-@recognition_bp.route('/api/recognition/latest', methods=['GET'])
+@recognition_bp.route('/latest', methods=['GET'])
 def get_latest_results():
     try:
         latest = recognition_service.get_latest_results()
