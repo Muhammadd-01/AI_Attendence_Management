@@ -48,9 +48,9 @@ export default function App() {
         </Suspense>
       } />
 
-      {/* Admin Dashboard (Teacher + Principal) */}
+      {/* Main Dashboard (Teacher, Principal, Student) */}
       <Route path="/" element={
-        <ProtectedRoute allowedRoles={['teacher', 'principal']}>
+        <ProtectedRoute allowedRoles={['teacher', 'principal', 'student']}>
           <MainLayout />
         </ProtectedRoute>
       }>
@@ -63,10 +63,26 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="classes" element={<Suspense fallback={<Loader />}><Classes /></Suspense>} />
-        <Route path="attendance" element={<Suspense fallback={<Loader />}><Attendance /></Suspense>} />
-        <Route path="reports" element={<Suspense fallback={<Loader />}><Reports /></Suspense>} />
-        <Route path="analytics" element={<Suspense fallback={<Loader />}><Analytics /></Suspense>} />
-        <Route path="settings" element={<Suspense fallback={<Loader />}><Settings /></Suspense>} />
+        <Route path="attendance" element={
+          <ProtectedRoute allowedRoles={['principal']}>
+            <Suspense fallback={<Loader />}><Attendance /></Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="reports" element={
+          <ProtectedRoute allowedRoles={['principal']}>
+            <Suspense fallback={<Loader />}><Reports /></Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="analytics" element={
+          <ProtectedRoute allowedRoles={['principal']}>
+            <Suspense fallback={<Loader />}><Analytics /></Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="settings" element={
+          <ProtectedRoute allowedRoles={['principal']}>
+            <Suspense fallback={<Loader />}><Settings /></Suspense>
+          </ProtectedRoute>
+        } />
         <Route path="profile" element={<Suspense fallback={<Loader />}><Profile /></Suspense>} />
       </Route>
 

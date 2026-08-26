@@ -9,29 +9,25 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
+    if (!email || !password) {
+      toast.error('Please enter both email and password');
+      return;
+    }
+
     setLoading(true);
-
-    setTimeout(() => {
-      // Smart role detection (simulating a database lookup)
-      // In a real app, the backend would verify the password and return the user's role
-      const isPrincipal = email.toLowerCase().includes('principal');
-      const role = isPrincipal ? 'principal' : 'teacher';
-      const name = isPrincipal ? 'Principal User' : 'Teacher User';
-
-      // For this demo, accept any non-empty password
-      if (email && password) {
-        login(email, password, role, name);
-        toast.success(`Welcome back, ${name}!`);
-      } else {
-        toast.error('Please enter both email and password');
-      }
-      
+    try {
+      const user = await login(email, password, rememberMe);
+      toast.success(`Welcome back, ${user.name}!`);
+    } catch (error) {
+      toast.error(error.message || 'Invalid credentials');
+    } finally {
       setLoading(false);
-    }, 800);
+    }
   };
 
   // Determine button color based on typed email
@@ -104,6 +100,20 @@ export default function LoginPage() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+            </div>
+            
+            {/* Remember Me */}
+            <div className="flex items-center">
+              <input
+                id="remember-me"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-primary-500 focus:ring-primary-500 focus:ring-offset-slate-900 transition-all cursor-pointer"
+              />
+              <label htmlFor="remember-me" className="ml-2 block text-sm text-slate-400 cursor-pointer select-none">
+                Remember me for 30 days
+              </label>
             </div>
 
             {/* Quick Fill Demo Credentials */}

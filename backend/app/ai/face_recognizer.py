@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 class FaceRecognizer:
     def __init__(self):
         self.known_encodings = {}  # {student_id: {'name': str, 'encodings': [np.array]}}
-        self.threshold = Config.FACE_MATCH_THRESHOLD
+        # 0.48 is extremely strict and prevents false positives with strangers
+        self.threshold = 0.48 
         self.lock = threading.Lock()
 
     def load_encodings(self, student_encodings):
@@ -34,7 +35,7 @@ class FaceRecognizer:
                 del self.known_encodings[student_id]
                 logger.info(f"Removed student {student_id} from recognizer.")
 
-    def recognize(self, face_encoding):
+    def recognize(self, face_encoding, allowed_class=None):
         """
         Compare one face encoding against all known students.
         Return dict: {'student_id': str|None, 'name': str, 'confidence': float, 'recognized': bool}
@@ -42,6 +43,7 @@ class FaceRecognizer:
         best_match = {
             'student_id': None,
             'name': 'Unknown',
+            'class_name': '',
             'confidence': 0.0,
             'recognized': False
         }
@@ -51,18 +53,33 @@ class FaceRecognizer:
         with self.lock:
             for student_id, data in self.known_encodings.items():
                 name = data['name']
+                class_name = data.get('class_name', '')
                 encodings = data['encodings']
+                
+                # If filtering by class, skip if this person isn't in that class
+                if allowed_class is not None and class_name != allowed_class:
+                    continue
                 
                 if not encodings:
                     continue
                     
                 distances = face_recognition.face_distance(encodings, face_encoding)
-                min_distance = np.min(distances)
                 
-                if min_distance < best_distance:
-                    best_distance = min_distance
+                # FIX FOR FALSE POSITIVES: 
+                # Instead of relying on a single fluke image (np.min),
+                # we require the face to strongly match at least the top 5 closest training images.
+                if len(distances) >= 5:
+                    sorted_dist = np.sort(distances)
+                    # Average of the 5 closest matches (consensus)
+                    robust_distance = np.mean(sorted_dist[:5])
+                else:
+                    robust_distance = np.min(distances)
+                
+                if robust_distance < best_distance:
+                    best_distance = robust_distance
                     best_match['student_id'] = student_id
                     best_match['name'] = name
+                    best_match['class_name'] = class_name
 
         if best_distance <= self.threshold:
             best_match['confidence'] = float(1.0 - best_distance)
@@ -70,9 +87,9 @@ class FaceRecognizer:
             
         return best_match
 
-    def recognize_multiple(self, face_encodings):
+    def recognize_multiple(self, face_encodings, allowed_class=None):
         """Recognize multiple faces. Returns list of recognition results."""
         results = []
         for encoding in face_encodings:
-            results.append(self.recognize(encoding))
+            results.append(self.recognize(encoding, allowed_class))
         return results

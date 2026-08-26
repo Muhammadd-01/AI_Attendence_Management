@@ -26,15 +26,15 @@ import ConfirmDialog from '../components/ConfirmDialog';
 
 const NAV_ITEMS_DEF = [
   { path: '/', label: 'Overview', icon: LayoutDashboard },
-  { path: '/live-attendance', label: 'Live AI', icon: Video, liveHighlight: true },
-  { path: '/kiosk', label: 'Check-In', icon: ScanFace, kioskHighlight: true },
-  { path: '/classes', label: 'Classes', icon: BookOpen },
-  { path: '/students', label: 'Students', icon: GraduationCap },
+  { path: '/live-attendance', label: 'Live AI', icon: Video, liveHighlight: true, hideForStudent: true },
+  { path: '/kiosk', label: 'Check-In', icon: ScanFace, kioskHighlight: true, hideForStudent: true },
+  { path: '/classes', label: 'Classes', icon: BookOpen, hideForStudent: true },
+  { path: '/students', label: 'Students', icon: GraduationCap, hideForStudent: true },
   { path: '/teachers', label: 'Faculty', icon: Users, role: 'principal' },
-  { path: '/attendance', label: 'Records', icon: ClipboardList },
-  { path: '/reports', label: 'Reports', icon: FileText },
-  { path: '/analytics', label: 'Analytics', icon: BarChart3 },
-  { path: '/settings', label: 'Settings', icon: Settings },
+  { path: '/attendance', label: 'Records', icon: ClipboardList, role: 'principal' },
+  { path: '/reports', label: 'Reports', icon: FileText, role: 'principal' },
+  { path: '/analytics', label: 'Analytics', icon: BarChart3, role: 'principal' },
+  { path: '/settings', label: 'Settings', icon: Settings, role: 'principal' },
 ];
 
 export default function MainLayout() {
@@ -51,9 +51,11 @@ export default function MainLayout() {
     return () => clearInterval(timer);
   }, []);
 
-  const navItems = NAV_ITEMS_DEF.filter(
-    item => !item.role || item.role === user?.role
-  );
+  const navItems = NAV_ITEMS_DEF.filter(item => {
+    if (user?.role === 'student' && item.hideForStudent) return false;
+    if (item.role && item.role !== user?.role) return false;
+    return true;
+  });
 
   const currentRoute = navItems.find(item => item.path === location.pathname) || { label: 'Studio Workspace' };
 

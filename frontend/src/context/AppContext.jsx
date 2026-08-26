@@ -17,22 +17,39 @@ export const AppProvider = ({ children }) => {
   
   // Auth State (mock)
   const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('auth_user');
-    return saved ? JSON.parse(saved) : null;
+    const local = localStorage.getItem('auth_user');
+    if (local) return JSON.parse(local);
+    const session = sessionStorage.getItem('auth_user');
+    if (session) return JSON.parse(session);
+    return null;
   });
 
-  const login = (email, password, role, name) => {
-    const newUser = { 
-      email, 
-      role, 
-      name: name || (role === 'principal' ? 'Dr. Abdullah Khan' : 'Muhammad Affan'),
-      phone: role === 'principal' ? '+92 300 1234567' : '+92 321 7654321',
-      department: role === 'principal' ? 'Administration & Executive Office' : 'Department of Computer Science',
-      title: role === 'principal' ? 'Head of Institution / Principal' : 'Senior Lecturer & AI Lab Incharge',
-      joinedDate: 'Jan 2024'
-    };
-    setUser(newUser);
-    localStorage.setItem('auth_user', JSON.stringify(newUser));
+  const login = async (email, password, remember = true) => {
+    try {
+      const response = await fetch('http://localhost:5001/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Invalid credentials');
+      }
+      
+      const newUser = data.user;
+      setUser(newUser);
+      
+      if (remember) {
+        localStorage.setItem('auth_user', JSON.stringify(newUser));
+      } else {
+        sessionStorage.setItem('auth_user', JSON.stringify(newUser));
+      }
+      
+      return newUser;
+    } catch (error) {
+      throw error;
+    }
   };
 
   const updateProfile = (updatedFields) => {
@@ -46,6 +63,7 @@ export const AppProvider = ({ children }) => {
   const logout = () => {
     setUser(null);
     localStorage.removeItem('auth_user');
+    sessionStorage.removeItem('auth_user');
   };
 
   useEffect(() => {

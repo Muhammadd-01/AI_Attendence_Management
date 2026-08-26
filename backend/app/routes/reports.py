@@ -10,7 +10,7 @@ reports_bp = Blueprint('reports', __name__)
 @reports_bp.route('/daily', methods=['GET'])
 def get_daily_reports():
     try:
-        date_str = request.args.get('date', datetime.datetime.utcnow().strftime('%Y-%m-%d'))
+        date_str = request.args.get('date', datetime.datetime.now().strftime('%Y-%m-%d'))
         records = attendance.get_attendance_by_date(date_str)
         
         total = len(records)
@@ -34,8 +34,8 @@ def get_daily_reports():
 @reports_bp.route('/monthly', methods=['GET'])
 def get_monthly_reports():
     try:
-        month = request.args.get('month', datetime.datetime.utcnow().strftime('%m'))
-        year = request.args.get('year', datetime.datetime.utcnow().strftime('%Y'))
+        month = request.args.get('month', datetime.datetime.now().strftime('%m'))
+        year = request.args.get('year', datetime.datetime.now().strftime('%Y'))
         
         month_prefix = f"{year}-{str(month).zfill(2)}"
         

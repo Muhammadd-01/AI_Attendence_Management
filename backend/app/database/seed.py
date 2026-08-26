@@ -31,7 +31,7 @@ def run_seed():
         
     # 3. Create Demo Attendance Records (30 days)
     print("Creating demo attendance records for the last 30 days...")
-    end_date = datetime.datetime.utcnow().date()
+    end_date = datetime.datetime.now().date()
     start_date = end_date - datetime.timedelta(days=30)
     
     # Clear existing demo data first

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Video, Play, Square, CheckCircle2, AlertTriangle, Clock, 
@@ -33,6 +33,8 @@ export default function LiveAttendance() {
   const [biometricStatus, setBiometricStatus] = useState('idle');
   const [sessionTime, setSessionTime] = useState(0);
 
+  const lastUnknownToastTime = useRef(0);
+
   // Load real today attendance
   const loadTodayAttendance = useCallback(async () => {
     try {
@@ -62,9 +64,18 @@ export default function LiveAttendance() {
       try {
         const res = await getLatestResults();
         const raw = res?.data || res || [];
-        if (Array.isArray(raw) && raw.length > 0) {
+        if (Array.isArray(raw)) {
           setResults(raw);
-          loadTodayAttendance();
+          if (raw.length > 0) {
+            loadTodayAttendance();
+            
+            // Check for unknown faces and log internally if needed, 
+            // but we will render the visual error directly on the video feed overlay now.
+            const hasUnknown = raw.some(face => !face.recognized || face.name === 'Unknown');
+            if (hasUnknown) {
+              lastUnknownToastTime.current = Date.now();
+            }
+          }
         }
       } catch (err) {
         // silent fail on polling
@@ -76,7 +87,8 @@ export default function LiveAttendance() {
 
   const handleStart = async () => {
     try {
-      await startSession();
+      const isTeacher = user?.role === 'teacher';
+      await startSession({ allowedClass: isTeacher ? (user?.assignedClass || '') : null });
       setSessionActive(true);
       setSessionTime(0);
       toast.success('Live AI Recognition Camera Active!');
@@ -232,6 +244,43 @@ export default function LiveAttendance() {
             </div>
             <div className="rounded-2xl overflow-hidden bg-slate-950 aspect-video relative flex items-center justify-center border border-slate-800">
               <CameraFeed streamUrl="/video_feed" active={sessionActive} className="w-full h-full object-cover" />
+              
+              <AnimatePresence>
+                {results.some(f => !f.recognized || f.name === 'Unknown') && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none bg-red-950/40 backdrop-blur-[2px]"
+                  >
+                    <div className="bg-red-600 text-white px-6 py-4 rounded-2xl shadow-2xl shadow-red-900/50 border-2 border-red-400 flex items-center gap-4">
+                      <AlertTriangle className="w-10 h-10 animate-pulse" />
+                      <div>
+                        <p className="font-black text-xl tracking-wide uppercase">ERROR: NOT FOUND</p>
+                        <p className="text-red-100 font-medium mt-0.5">Face is not registered in the system</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+                
+                {/* Already Checked In Overlay */}
+                {results.some(f => f.recognized && f.student_id && todayList.some(t => t.student_id === f.student_id)) && !results.some(f => !f.recognized) && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9, y: -20 }}
+                    className="absolute bottom-6 inset-x-0 z-10 flex items-center justify-center pointer-events-none"
+                  >
+                    <div className="bg-emerald-500/90 backdrop-blur-md text-white px-6 py-3 rounded-2xl shadow-2xl shadow-emerald-900/40 border border-emerald-400 flex items-center gap-3">
+                      <CheckCircle2 className="w-7 h-7" />
+                      <div>
+                        <p className="font-black text-sm tracking-wide uppercase">ATTENDANCE ALREADY RECORDED</p>
+                        <p className="text-emerald-100 font-medium text-xs">You are already checked in for today.</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>

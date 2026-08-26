@@ -18,10 +18,29 @@ import {
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } };
 const item = { hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 280, damping: 22 } } };
 
+import { useApp } from '../context/AppContext';
+
 export default function Classes() {
+  const { user } = useApp();
+  const isPrincipal = user?.role === 'principal';
+  
   const [activeTab, setActiveTab] = useState('classes'); // 'classes' or 'departments'
-  const [classList, setClassList] = useState(getStoredClasses());
-  const [deptList, setDeptList] = useState(getStoredDepartments());
+  
+  const [classList, setClassList] = useState(() => {
+    const all = getStoredClasses();
+    if (isPrincipal) return all;
+    if (user?.assignedClass && all.includes(user.assignedClass)) return [user.assignedClass];
+    if (user?.assignedClass) return [user.assignedClass];
+    return [];
+  });
+  
+  const [deptList, setDeptList] = useState(() => {
+    const all = getStoredDepartments();
+    if (isPrincipal) return all;
+    if (user?.department && all.includes(user.department)) return [user.department];
+    if (user?.department) return [user.department];
+    return [];
+  });
 
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);

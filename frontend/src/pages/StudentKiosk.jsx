@@ -12,9 +12,11 @@ import { recordCheckIn, recordCheckOut } from '../services/attendanceApi';
 import { startSession, stopSession, getLatestResults } from '../services/recognitionApi';
 import { formatTime } from '../utils/formatters';
 import toast from 'react-hot-toast';
+import { useApp } from '../context/AppContext';
 
 export default function StudentKiosk() {
   const navigate = useNavigate();
+  const { user } = useApp();
   const [actionType, setActionType] = useState('check-in'); // 'check-in' or 'check-out'
   const [authStatus, setAuthStatus] = useState('idle'); // idle, scanning, success, error
   const [verifiedPerson, setVerifiedPerson] = useState(null);
@@ -26,6 +28,8 @@ export default function StudentKiosk() {
   // Real-time automatic AI detected person (null when nobody is in frame)
   const [detectedFace, setDetectedFace] = useState(null);
   const [isScanningActive, setIsScanningActive] = useState(true);
+  
+  const lastUnknownToastTime = useRef(0);
 
   // Clock interval
   useEffect(() => {
@@ -87,10 +91,11 @@ export default function StudentKiosk() {
         }
 
         // If no face was detected in latest frame, also query scan-frame
+        const isTeacherUser = user?.role === 'teacher';
         const scanRes = await fetch('/api/recognition/scan-frame', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({})
+          body: JSON.stringify({ allowedClass: isTeacherUser ? (user?.assignedClass || '') : null })
         }).then(r => r.json()).catch(() => null);
 
         if (scanRes?.data?.face_detected && scanRes?.data?.results?.length > 0) {
@@ -103,6 +108,13 @@ export default function StudentKiosk() {
               role: isTeacher ? 'teacher' : 'student',
               roleLabel: isTeacher ? 'Faculty Member' : 'Student',
               confidence: Math.round((m.confidence || 0.95) * 100)
+            });
+            return;
+          } else if (!m.recognized || m.name === 'Unknown') {
+            setDetectedFace({
+              error: true,
+              name: 'ERROR: NOT FOUND',
+              roleLabel: 'Face not registered'
             });
             return;
           }
@@ -120,8 +132,10 @@ export default function StudentKiosk() {
 
   // Execute Face Attendance Verification (Instant or Automatic)
   const handleExecuteFaceAttendance = async () => {
-    if (!detectedFace) {
-      toast('Please position your face directly in front of the camera', { icon: '📷' });
+    if (!detectedFace || detectedFace.error) {
+      if (!detectedFace?.error) {
+        toast('Please position your face directly in front of the camera', { icon: '📷' });
+      }
       return;
     }
 
@@ -136,7 +150,16 @@ export default function StudentKiosk() {
           confidence: detectedFace.confidence / 100
         });
         record = res?.data || res;
-        toast.success(`Check-In Verified: ${detectedFace.roleLabel} ${detectedFace.name} (${detectedFace.id})`);
+        
+        if (record?.already_checked_in) {
+          toast.success(`${detectedFace.roleLabel} ${detectedFace.name} (${detectedFace.id}) is ALREADY CHECKED IN today.`, {
+            icon: '✅',
+            duration: 4000
+          });
+          setDetectedFace(prev => prev ? { ...prev, alreadyCheckedIn: true } : prev);
+        } else {
+          toast.success(`Check-In Verified: ${detectedFace.roleLabel} ${detectedFace.name} (${detectedFace.id})`, { duration: 4000 });
+        }
       } else {
         const res = await recordCheckOut({
           student_id: detectedFace.id,
@@ -157,7 +180,8 @@ export default function StudentKiosk() {
         checkInTime: record?.check_in_time || '08:30:00',
         checkOutTime: record?.check_out_time || formatTime(new Date().toISOString()),
         duration: record?.duration_minutes ? formatDurationMins(record.duration_minutes) : 'Calculating...',
-        time: formatTime(new Date().toISOString())
+        time: formatTime(new Date().toISOString()),
+        already_checked_in: record?.already_checked_in
       });
       setAuthStatus('success');
     } catch (err) {
@@ -166,6 +190,17 @@ export default function StudentKiosk() {
       setAuthStatus('idle');
     }
   };
+
+  // Automatic Face Attendance Trigger
+  useEffect(() => {
+    if (detectedFace && !detectedFace.error && authStatus === 'idle') {
+      const timer = setTimeout(() => {
+        handleExecuteFaceAttendance();
+      }, 1500); // Wait 1.5 seconds after solid face lock to auto-trigger
+      
+      return () => clearTimeout(timer);
+    }
+  }, [detectedFace, authStatus]);
 
   // Hardware Touch ID Fingerprint Scan
   const handleFingerprintScan = async () => {
@@ -323,13 +358,17 @@ export default function StudentKiosk() {
               {/* Presence Status Tag */}
               <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-md border ${
                 detectedFace 
-                  ? (detectedFace.role === 'teacher' 
-                      ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60' 
-                      : 'bg-primary-950/80 text-primary-400 border-primary-800/60')
+                  ? (detectedFace.error 
+                      ? 'bg-red-950/80 text-red-400 border-red-800/60'
+                      : detectedFace.alreadyCheckedIn
+                        ? 'bg-blue-950/80 text-blue-400 border-blue-800/60'
+                        : detectedFace.role === 'teacher' 
+                          ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60' 
+                          : 'bg-primary-950/80 text-primary-400 border-primary-800/60')
                   : 'bg-slate-800 text-slate-400 border-slate-700'
               }`}>
                 {detectedFace 
-                  ? (detectedFace.role === 'teacher' ? 'FACULTY DETECTED' : 'STUDENT DETECTED') 
+                  ? (detectedFace.error ? 'UNKNOWN FACE' : detectedFace.alreadyCheckedIn ? 'ALREADY RECORDED' : detectedFace.role === 'teacher' ? 'FACULTY DETECTED' : 'STUDENT DETECTED') 
                   : 'NO PERSON DETECTED'}
               </span>
             </div>
@@ -342,11 +381,11 @@ export default function StudentKiosk() {
               <div className="absolute inset-0 border-2 border-primary-500/20 rounded-2xl pointer-events-none flex flex-col items-center justify-between p-4">
                 <div className="w-full flex items-center justify-between text-[10px] font-mono text-slate-400">
                   <span className="bg-black/60 px-2 py-0.5 rounded-md backdrop-blur-xs border border-white/10 flex items-center gap-1">
-                    <span className={`w-1.5 h-1.5 rounded-full ${detectedFace ? 'bg-emerald-400 animate-ping' : 'bg-amber-400 animate-pulse'}`} />
-                    {detectedFace ? 'LANDMARKS: 68-PTS LOCKED' : 'RADAR: SCANNING STREAM...'}
+                    <span className={`w-1.5 h-1.5 rounded-full ${detectedFace ? (detectedFace.error ? 'bg-red-400 animate-ping' : 'bg-emerald-400 animate-ping') : 'bg-amber-400 animate-pulse'}`} />
+                    {detectedFace ? (detectedFace.error ? 'LANDMARKS: NO MATCH FOUND' : 'LANDMARKS: 68-PTS LOCKED') : 'RADAR: SCANNING STREAM...'}
                   </span>
                   <span className="bg-black/60 px-2 py-0.5 rounded-md backdrop-blur-xs border border-white/10">
-                    {detectedFace ? `CONF: ${detectedFace.confidence}%` : 'TARGET: NONE'}
+                    {detectedFace ? (detectedFace.error ? 'CONF: < 50%' : `CONF: ${detectedFace.confidence}%`) : 'TARGET: NONE'}
                   </span>
                 </div>
 
@@ -355,21 +394,28 @@ export default function StudentKiosk() {
                   <motion.div 
                     initial={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    className="w-48 h-48 border-2 border-emerald-400/80 rounded-3xl relative flex flex-col items-center justify-end p-2 shadow-lg shadow-emerald-500/20"
+                    className={`w-48 h-48 border-2 rounded-3xl relative flex flex-col items-center justify-end p-2 shadow-lg ${
+                      detectedFace.error ? 'border-red-500/80 shadow-red-600/20' : 'border-emerald-400/80 shadow-emerald-500/20'
+                    }`}
                   >
-                    <span className="absolute -top-1.5 -left-1.5 w-4 h-4 border-t-2 border-l-2 border-emerald-400" />
-                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 border-t-2 border-r-2 border-emerald-400" />
-                    <span className="absolute -bottom-1.5 -left-1.5 w-4 h-4 border-b-2 border-l-2 border-emerald-400" />
-                    <span className="absolute -bottom-1.5 -right-1.5 w-4 h-4 border-b-2 border-r-2 border-emerald-400" />
+                    <span className={`absolute -top-1.5 -left-1.5 w-4 h-4 border-t-2 border-l-2 ${detectedFace.error ? 'border-red-500' : 'border-emerald-400'}`} />
+                    <span className={`absolute -top-1.5 -right-1.5 w-4 h-4 border-t-2 border-r-2 ${detectedFace.error ? 'border-red-500' : 'border-emerald-400'}`} />
+                    <span className={`absolute -bottom-1.5 -left-1.5 w-4 h-4 border-b-2 border-l-2 ${detectedFace.error ? 'border-red-500' : 'border-emerald-400'}`} />
+                    <span className={`absolute -bottom-1.5 -right-1.5 w-4 h-4 border-b-2 border-r-2 ${detectedFace.error ? 'border-red-500' : 'border-emerald-400'}`} />
                     
                     {/* Floating Identification Tag on Face */}
                     <div className={`px-3 py-1 rounded-xl text-center backdrop-blur-md shadow-xl border text-[11px] font-mono font-bold ${
-                      detectedFace.role === 'teacher'
-                        ? 'bg-emerald-950/90 text-emerald-300 border-emerald-400'
-                        : 'bg-primary-950/90 text-primary-300 border-primary-400'
+                      detectedFace.error 
+                        ? 'bg-red-950/90 text-red-400 border-red-500'
+                        : detectedFace.alreadyCheckedIn
+                          ? 'bg-blue-950/90 text-blue-300 border-blue-400'
+                          : detectedFace.role === 'teacher'
+                            ? 'bg-emerald-950/90 text-emerald-300 border-emerald-400'
+                            : 'bg-primary-950/90 text-primary-300 border-primary-400'
                     }`}>
-                      <p className="truncate max-w-[150px]">{detectedFace.name}</p>
-                      <p className="text-[9px] opacity-90">{detectedFace.id} • {detectedFace.roleLabel}</p>
+                      <p className="truncate max-w-[150px] uppercase">{detectedFace.name}</p>
+                      {detectedFace.id && <p className="text-[9px] opacity-90">{detectedFace.id} • {detectedFace.alreadyCheckedIn ? 'ALREADY MARKED' : detectedFace.roleLabel}</p>}
+                      {!detectedFace.id && <p className="text-[9px] opacity-90 text-red-200">{detectedFace.roleLabel}</p>}
                     </div>
                   </motion.div>
                 ) : (
@@ -524,23 +570,31 @@ export default function StudentKiosk() {
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 20 }}
-              className="bg-slate-900 border border-emerald-500/40 p-8 sm:p-10 rounded-3xl text-center max-w-md w-full shadow-2xl shadow-emerald-500/20"
+              className={`bg-slate-900 border p-8 sm:p-10 rounded-3xl text-center max-w-md w-full shadow-2xl ${
+                verifiedPerson.already_checked_in ? 'border-blue-500/40 shadow-blue-500/20' : 'border-emerald-500/40 shadow-emerald-500/20'
+              }`}
             >
               <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-4 border ${
-                verifiedPerson.action === 'check-in'
-                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                  : 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                verifiedPerson.already_checked_in
+                  ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
+                  : verifiedPerson.action === 'check-in'
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                    : 'bg-rose-500/20 text-rose-400 border-rose-500/40'
               }`}>
                 <CheckCircle2 className="w-10 h-10" />
               </div>
 
               {/* Automatic Role Recognition Badge */}
               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2 border ${
-                verifiedPerson.role === 'teacher'
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                  : 'bg-primary-500/20 text-primary-300 border-primary-500/40'
+                verifiedPerson.already_checked_in
+                  ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                  : verifiedPerson.role === 'teacher'
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-primary-500/20 text-primary-300 border-primary-500/40'
               }`}>
-                {verifiedPerson.role === 'teacher' ? '👨‍🏫 FACULTY ATTENDANCE RECORDED' : '🎓 STUDENT ATTENDANCE RECORDED'}
+                {verifiedPerson.already_checked_in 
+                  ? (verifiedPerson.role === 'teacher' ? '👨‍🏫 FACULTY ALREADY CHECKED IN' : '🎓 STUDENT ALREADY CHECKED IN') 
+                  : (verifiedPerson.role === 'teacher' ? '👨‍🏫 FACULTY ATTENDANCE RECORDED' : '🎓 STUDENT ATTENDANCE RECORDED')}
               </span>
 
               <h1 className="text-2xl sm:text-3xl font-display font-bold text-white mb-1">
@@ -580,9 +634,13 @@ export default function StudentKiosk() {
                 </div>
               </div>
 
-              <button 
+              <button
                 onClick={reset}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-emerald-600/30 transition-all text-sm"
+                className={`w-full text-white font-bold py-3.5 rounded-2xl shadow-lg transition-all text-sm ${
+                  verifiedPerson.already_checked_in 
+                    ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30' 
+                    : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
+                }`}
               >
                 Next Attendee
               </button>

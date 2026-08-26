@@ -102,43 +102,37 @@ export default function FaceCapture({ personId, personName, bucket = 'student-fa
               if (currentUrl && (!bestImageUrl || imagesCaptured === 0)) {
                 setBestImageUrl(currentUrl);
               }
-            })
-            .catch(() => {});
-
-          // Also sync base64 with backend
-          const reader = new FileReader();
-          reader.onloadend = async () => {
-            try {
-              const base64Data = reader.result;
-              const captureEndpoint = isTeacher
-                ? `/api/teachers/${personId}/faces/capture`
-                : `/api/students/${personId}/faces/capture`;
-
-              await fetch(captureEndpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: base64Data })
+              setImagesCaptured(prev => {
+                const next = prev + 1;
+                if (next === maxImages) {
+                  setAutoMode(false);
+                  setTimeout(() => triggerAutoTrain(100), 400);
+                }
+                return next;
               });
-            } catch (e) {}
-          };
-          reader.readAsDataURL(blob);
-          
-          setImagesCaptured(prev => {
-            const next = prev + 1;
-            if (next === maxImages) {
-              setAutoMode(false);
-              setTimeout(() => triggerAutoTrain(100), 400);
-            }
-            return next;
-          });
+            })
+            .catch((err) => {
+              if (err.message && err.message.includes('Bucket Not Found')) {
+                toast.error(err.message, { duration: 6000 });
+              }
+            })
+            .finally(() => {
+              isCapturingRef.current = false;
+              setLoading(false);
+            });
+        } else {
+          isCapturingRef.current = false;
+          setLoading(false);
         }
+      } else {
+        isCapturingRef.current = false;
+        setLoading(false);
       }
     } catch (err) {
       console.error("Capture error:", err);
       setAutoMode(false);
-    } finally {
-      setLoading(false);
       isCapturingRef.current = false;
+      setLoading(false);
     }
   };
 
@@ -162,7 +156,7 @@ export default function FaceCapture({ personId, personName, bucket = 'student-fa
   return (
     <div className="flex flex-col md:flex-row gap-6">
       <div className="flex-1 relative rounded-2xl overflow-hidden shadow-inner bg-black min-h-[360px] flex items-center justify-center">
-        <CameraFeed ref={cameraRef} active={true} className="w-full h-full object-cover" />
+        <CameraFeed ref={cameraRef} active={true} forceLocalWebcam={true} className="w-full h-full object-cover" />
         
         {/* Dynamic Overlay Guide */}
         {tab === 'camera' && imagesCaptured < maxImages && autoMode && (

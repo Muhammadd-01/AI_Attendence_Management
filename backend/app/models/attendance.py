@@ -4,7 +4,7 @@ from app.config import Config
 
 def check_in(student_id, student_name, confidence, session_id=None, person_type=None):
     db = get_db()
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now()
     date_str = now.strftime('%Y-%m-%d')
     time_str = now.strftime('%H:%M:%S')
     
@@ -63,7 +63,7 @@ def check_in(student_id, student_name, confidence, session_id=None, person_type=
 
 def check_out(student_id, date=None):
     db = get_db()
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now()
     date_str = date or now.strftime('%Y-%m-%d')
     time_str = now.strftime('%H:%M:%S')
     
@@ -104,7 +104,7 @@ def check_out(student_id, date=None):
 
 def get_today_attendance(person_type=None):
     db = get_db()
-    date_str = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+    date_str = datetime.datetime.now().strftime('%Y-%m-%d')
     records = get_attendance_by_date(date_str)
     if person_type:
         records = [r for r in records if r.get('person_type') == person_type or (person_type == 'teacher' and str(r.get('student_id','')).startswith('TCH')) or (person_type == 'student' and not str(r.get('student_id','')).startswith('TCH'))]
@@ -186,13 +186,13 @@ def get_attendance_history(page=1, per_page=20, student_id=None, date=None, stat
 
 def is_checked_in_today(student_id):
     db = get_db()
-    date_str = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+    date_str = datetime.datetime.now().strftime('%Y-%m-%d')
     query = db.collection('attendance').where('student_id', '==', student_id).where('date', '==', date_str).limit(1)
     return len(list(query.stream())) > 0
 
 def is_checked_out_today(student_id):
     db = get_db()
-    date_str = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+    date_str = datetime.datetime.now().strftime('%Y-%m-%d')
     query = db.collection('attendance').where('student_id', '==', student_id).where('date', '==', date_str).limit(1)
     docs = list(query.stream())
     
@@ -204,7 +204,7 @@ def is_checked_out_today(student_id):
 
 def mark_absent(student_id, student_name, date_str=None, session_id=None, person_type='student'):
     db = get_db()
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now()
     date_str = date_str or now.strftime('%Y-%m-%d')
     
     data = {
@@ -265,18 +265,32 @@ def finalize_session(session_id=None):
         'total_absent': total_absent
     }
 
-def get_attendance_stats(days=30, person_type='student'):
+def get_attendance_stats(days=30, person_type='student', role=None, assigned_class=None):
     db = get_db()
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now()
     start_date = (now - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
     
     query = db.collection('attendance').where('date', '>=', start_date)
-    docs = query.stream()
+    docs = list(query.stream())
+    
+    # Pre-fetch students for class filtering
+    students_in_class = []
+    if role == 'teacher' and assigned_class:
+        from app.models.student import get_active_students
+        students_in_class = [s.get('student_id') for s in get_active_students() if s.get('class_name') == assigned_class]
     
     stats_by_date = {}
     for doc in docs:
         data = doc.to_dict()
-        if person_type and person_type != 'all':
+        
+        # If teacher viewing, filter by their assigned class
+        if role == 'teacher' and assigned_class:
+            if data.get('student_id') not in students_in_class:
+                continue
+        elif role == 'principal':
+            # Principal sees everyone
+            pass
+        elif person_type and person_type != 'all':
             p_type = data.get('person_type') or ('teacher' if str(data.get('student_id','')).startswith('TCH') else 'student')
             if p_type != person_type:
                 continue
@@ -306,7 +320,7 @@ def get_student_attendance_percentage(student_id, days=30):
 
 def create_session(classroom_name=None):
     db = get_db()
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now()
     
     data = {
         'classroom_name': classroom_name or Config.CLASSROOM_NAME,
@@ -325,7 +339,7 @@ def create_session(classroom_name=None):
 
 def end_session(session_id):
     db = get_db()
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now()
     
     doc_ref = db.collection('attendance_sessions').document(session_id)
     doc = doc_ref.get()

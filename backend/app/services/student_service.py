@@ -32,7 +32,8 @@ def create_student(data):
         data.get('name'),
         data.get('email', ''),
         data.get('class_name', ''),
-        data.get('course', '')
+        data.get('course', ''),
+        password=data.get('password', 'student123')
     )
 
 def update_student(student_id, data):
@@ -47,13 +48,14 @@ def get_dataset_path():
     except Exception:
         return Path(os.path.join(os.getcwd(), 'dataset'))
 
+from concurrent.futures import ThreadPoolExecutor
+
 def download_supabase_images(student_id, image_urls):
     """
     Downloads images from Supabase and returns them as in-memory RGB numpy arrays.
-    Prevents saving images to local disk.
+    Uses multi-threading for speed.
     """
-    frames = []
-    for idx, url in enumerate(image_urls):
+    def fetch_url(url):
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -61,11 +63,17 @@ def download_supabase_images(student_id, image_urls):
                 np_arr = np.frombuffer(img_bytes, np.uint8)
                 bgr_frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
                 if bgr_frame is not None:
-                    rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
-                    frames.append(rgb_frame)
+                    return cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
         except Exception as e:
             logger.warning(f"Error downloading {url}: {e}")
-            
+        return None
+
+    frames = []
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = executor.map(fetch_url, image_urls)
+        for res in results:
+            if res is not None:
+                frames.append(res)
     return frames
 
 def capture_face(student_id, image_data=None):
@@ -151,6 +159,8 @@ def train_student_model(student_id, image_urls=None):
         if recognition_service.recognizer:
             recognition_service.recognizer.add_student(student_id, st_name, encodings)
             
+        recognition_service.sync_all()
+
         logger.info(f"Auto-trained AI model for student {st_name} ({student_id}) with {len(encodings)} embeddings.")
         return {
             "success": True,

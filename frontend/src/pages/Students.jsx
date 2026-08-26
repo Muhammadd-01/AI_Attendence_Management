@@ -9,8 +9,9 @@ import BiometricModal from '../components/BiometricModal';
 import toast from 'react-hot-toast';
 import { useDebounce } from '../hooks/useDebounce';
 import { getStoredClasses, saveNewClass, getStoredDepartments, saveNewDepartment } from '../utils/academicData';
+import { useApp } from '../context/AppContext';
 
-const EMPTY_FORM = { student_id: '', name: '', email: '', class_name: 'CS-401', course: 'Artificial Intelligence' };
+const EMPTY_FORM = { student_id: '', name: '', email: '', password: 'student123', class_name: 'CS-401', course: 'Artificial Intelligence' };
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.04 } } };
 const row = { hidden: { opacity: 0, x: -15 }, show: { opacity: 1, x: 0 } };
 
@@ -70,8 +71,12 @@ export default function Students() {
     return `ST${String(maxNum + 1).padStart(3, '0')}`;
   };
 
+  const { user } = useApp();
+  const isPrincipal = user?.role === 'principal';
+
   const filtered = useMemo(() => {
     return students.filter(s => {
+      if (!isPrincipal && user?.assignedClass && s.class_name !== user.assignedClass) return false;
       if (statusFilter !== 'all' && s.status !== statusFilter) return false;
       if (classFilter !== 'all' && s.class_name !== classFilter) return false;
       if (debouncedSearch) {
@@ -82,20 +87,21 @@ export default function Students() {
       }
       return true;
     });
-  }, [students, statusFilter, classFilter, debouncedSearch]);
+  }, [students, statusFilter, classFilter, debouncedSearch, isPrincipal, user]);
 
   const handleAdd = () => {
     const nextId = getNextStudentId(students);
     const classes = getStoredClasses();
     const depts = getStoredDepartments();
-    setClassList(classes);
-    setDeptList(depts);
+    setClassList(isPrincipal ? classes : (user?.assignedClass ? [user.assignedClass] : []));
+    setDeptList(isPrincipal ? depts : (user?.department ? [user.department] : []));
     setForm({
       student_id: nextId,
       name: '',
       email: '',
-      class_name: classes[0] || 'CS-401',
-      course: depts[0] || 'Artificial Intelligence'
+      password: 'student123',
+      class_name: (!isPrincipal && user?.assignedClass) ? user.assignedClass : (classes[0] || 'CS-401'),
+      course: (!isPrincipal && user?.department) ? user.department : (depts[0] || 'Artificial Intelligence')
     });
     setShowNewClassInput(false);
     setShowNewDeptInput(false);
@@ -151,8 +157,10 @@ export default function Students() {
 
   const handleEditClick = (s) => { 
     setForm(s); 
-    setClassList(getStoredClasses());
-    setDeptList(getStoredDepartments());
+    const classes = getStoredClasses();
+    const depts = getStoredDepartments();
+    setClassList(isPrincipal ? classes : (user?.assignedClass ? [user.assignedClass] : []));
+    setDeptList(isPrincipal ? depts : (user?.department ? [user.department] : []));
     setShowEdit(true); 
   };
   
@@ -254,19 +262,35 @@ export default function Students() {
           placeholder="student@example.com" 
         />
       </div>
+      {isPrincipal && (
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+            Student Portal Password
+          </label>
+          <input 
+            type="text" 
+            value={form.password || ''} 
+            onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary-500 outline-none" 
+            placeholder="e.g. student123" 
+          />
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
               Class
             </label>
-            <button
-              type="button"
-              onClick={() => setShowNewClassInput(!showNewClassInput)}
-              className="text-xs text-primary-600 font-semibold flex items-center gap-0.5 hover:underline"
-            >
-              <Plus className="w-3 h-3" /> Add New
-            </button>
+            {isPrincipal && (
+              <button
+                type="button"
+                onClick={() => setShowNewClassInput(!showNewClassInput)}
+                className="text-xs text-primary-600 font-semibold flex items-center gap-0.5 hover:underline"
+              >
+                <Plus className="w-3 h-3" /> Add New
+              </button>
+            )}
           </div>
 
           {showNewClassInput ? (
@@ -290,7 +314,8 @@ export default function Students() {
             <select 
               value={form.class_name} 
               onChange={e => setForm(f => ({ ...f, class_name: e.target.value }))}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary-500 outline-none"
+              disabled={!isPrincipal}
+              className={`w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary-500 outline-none ${!isPrincipal ? 'opacity-80 cursor-not-allowed' : ''}`}
             >
               {classList.map(c => (
                 <option key={c} value={c}>{c}</option>
@@ -304,13 +329,15 @@ export default function Students() {
             <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
               Department / Course
             </label>
-            <button
-              type="button"
-              onClick={() => setShowNewDeptInput(!showNewDeptInput)}
-              className="text-xs text-emerald-600 font-semibold flex items-center gap-0.5 hover:underline"
-            >
-              <Plus className="w-3 h-3" /> Add New
-            </button>
+            {isPrincipal && (
+              <button
+                type="button"
+                onClick={() => setShowNewDeptInput(!showNewDeptInput)}
+                className="text-xs text-emerald-600 font-semibold flex items-center gap-0.5 hover:underline"
+              >
+                <Plus className="w-3 h-3" /> Add New
+              </button>
+            )}
           </div>
 
           {showNewDeptInput ? (
@@ -334,7 +361,8 @@ export default function Students() {
             <select 
               value={form.course} 
               onChange={e => setForm(f => ({ ...f, course: e.target.value }))}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary-500 outline-none"
+              disabled={!isPrincipal}
+              className={`w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary-500 outline-none ${!isPrincipal ? 'opacity-80 cursor-not-allowed' : ''}`}
             >
               {deptList.map(d => (
                 <option key={d} value={d}>{d}</option>
@@ -354,10 +382,12 @@ export default function Students() {
           <h2 className="text-2xl font-bold text-gray-900">Students</h2>
           <p className="text-gray-500 mt-1">{filtered.length} students found</p>
         </div>
-        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleAdd}
-          className="flex items-center gap-2 bg-primary-600 text-white px-5 py-2.5 rounded-xl font-medium shadow-sm hover:shadow-md transition-shadow">
-          <UserPlus className="w-4 h-4" /> Add Student
-        </motion.button>
+        {isPrincipal && (
+          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleAdd}
+            className="flex items-center gap-2 bg-primary-600 text-white px-5 py-2.5 rounded-xl font-medium shadow-sm hover:shadow-md transition-shadow">
+            <UserPlus className="w-4 h-4" /> Add Student
+          </motion.button>
+        )}
       </div>
 
       {/* Filters */}
@@ -497,13 +527,15 @@ export default function Students() {
                     >
                       <Edit className="w-4 h-4" />
                     </button>
-                    <button 
-                      onClick={() => setShowDelete(s)} 
-                      className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors" 
-                      title="Delete Student"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {isPrincipal && (
+                      <button 
+                        onClick={() => setShowDelete(s)} 
+                        className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors" 
+                        title="Delete Student"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </motion.div>

@@ -1,0 +1,8 @@
+--- frontend/src/components/FaceCapture.jsx
++++ frontend/src/components/FaceCapture.jsx
+@@ -124,4 +124,2 @@
+             });
+-            }
+-            return next;
+-          });
+         } else {

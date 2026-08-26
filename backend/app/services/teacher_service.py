@@ -22,13 +22,14 @@ def get_dataset_path():
     except Exception:
         return Path(os.path.join(os.getcwd(), 'dataset'))
 
+from concurrent.futures import ThreadPoolExecutor
+
 def download_supabase_images(teacher_id, image_urls):
     """
     Downloads images from Supabase and returns them as in-memory RGB numpy arrays.
-    Prevents saving images to local disk.
+    Uses multi-threading for speed.
     """
-    frames = []
-    for idx, url in enumerate(image_urls):
+    def fetch_url(url):
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -36,11 +37,17 @@ def download_supabase_images(teacher_id, image_urls):
                 np_arr = np.frombuffer(img_bytes, np.uint8)
                 bgr_frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
                 if bgr_frame is not None:
-                    rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
-                    frames.append(rgb_frame)
+                    return cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
         except Exception as e:
             logger.warning(f"Error downloading faculty image {url}: {e}")
-            
+        return None
+
+    frames = []
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = executor.map(fetch_url, image_urls)
+        for res in results:
+            if res is not None:
+                frames.append(res)
     return frames
 
 def get_all_teachers():
@@ -70,12 +77,13 @@ def create_teacher(data):
         'email': data.get('email', ''),
         'password': data.get('password', ''),
         'department': data.get('department', 'Computer Science'),
+        'assigned_class': data.get('assigned_class', ''),
         'status': data.get('status', 'active'),
         'face_count': 0,
         'encodings_count': 0,
         'lastLogin': data.get('lastLogin', 'Never'),
-        'created_at': datetime.datetime.utcnow().isoformat(),
-        'updated_at': datetime.datetime.utcnow().isoformat()
+        'created_at': datetime.datetime.now().isoformat(),
+        'updated_at': datetime.datetime.now().isoformat()
     }
     
     doc_ref.set(teacher_data)
@@ -90,7 +98,7 @@ def update_teacher(teacher_id, data):
         doc_ref = db.collection('teachers').document(teacher_id)
         
     update_data = data.copy()
-    update_data['updated_at'] = datetime.datetime.utcnow().isoformat()
+    update_data['updated_at'] = datetime.datetime.now().isoformat()
     doc_ref.update(update_data)
     return get_teacher(teacher_id)
 
@@ -101,6 +109,15 @@ def delete_teacher(teacher_id):
         docs[0].reference.delete()
     else:
         db.collection('teachers').document(teacher_id).delete()
+        
+    # Cascade delete all attendance records for this teacher
+    try:
+        att_docs = db.collection('attendance').where('student_id', '==', teacher_id).stream()
+        for doc in att_docs:
+            doc.reference.delete()
+    except Exception as e:
+        pass
+        
     return True
 
 def capture_teacher_face(teacher_id, image_data=None):
@@ -178,11 +195,17 @@ def train_teacher_model(teacher_id, image_urls=None):
         for enc in encodings:
             encodings_ref.add({
                 'encoding': enc.tolist() if isinstance(enc, np.ndarray) else list(enc),
-                'created_at': datetime.datetime.utcnow()
+                'created_at': datetime.datetime.now()
             })
             
-        update_teacher(teacher_id, {'encodings_count': len(encodings)})
+        update_teacher(teacher_id, {'encodings_count': len(encodings), 'is_trained': True})
         
+        # VERY IMPORTANT: Reload AI models in memory so live scanner works instantly
+        try:
+            recognition_service.sync_all()
+        except Exception as e:
+            logger.warning(f"Failed to sync recognition models: {e}")
+            
         t_data = get_teacher(teacher_id) or {}
         t_name = t_data.get('name', teacher_id)
         

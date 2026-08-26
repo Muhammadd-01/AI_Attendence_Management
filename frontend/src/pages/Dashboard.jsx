@@ -13,6 +13,8 @@ import { getStats, getRecentActivity, getWeeklyTrend, getMonthlyTrend } from '..
 import { useApp } from '../context/AppContext';
 import toast from 'react-hot-toast';
 
+import StudentPortal from './StudentPortal';
+
 const container = {
   hidden: { opacity: 0 },
   show: { 
@@ -29,6 +31,7 @@ const item = {
 export default function Dashboard() {
   const navigate = useNavigate();
   const { sessionActive, user } = useApp();
+  
   const [stats, setStats] = useState({
     totalStudents: 0,
     presentToday: 0,
@@ -40,13 +43,17 @@ export default function Dashboard() {
   const [recentActivity, setRecentActivity] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  if (user?.role === 'student') {
+    return <StudentPortal />;
+  }
+
   const fetchDashboardData = async () => {
     try {
       const [statsRes, weeklyRes, monthlyRes, recentRes] = await Promise.allSettled([
-        getStats(),
-        getWeeklyTrend(),
-        getMonthlyTrend(),
-        getRecentActivity()
+        getStats(user?.role, user?.assignedClass),
+        getWeeklyTrend(user?.role, user?.assignedClass),
+        getMonthlyTrend(user?.role, user?.assignedClass),
+        getRecentActivity(user?.role, user?.assignedClass)
       ]);
 
       if (statsRes.status === 'fulfilled' && statsRes.value) {

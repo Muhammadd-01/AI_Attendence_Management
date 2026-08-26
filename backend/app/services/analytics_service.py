@@ -3,10 +3,23 @@ import datetime
 from io import StringIO
 from app.models import student, attendance
 
-def get_dashboard_stats():
-    total_students = student.get_student_count()
-    present_today = attendance.get_present_count_today()
-    absent_today = attendance.get_absent_count_today()
+def get_dashboard_stats(role=None, assigned_class=None):
+    if role == 'teacher' and assigned_class:
+        # Get count of students in this class
+        active_students = student.get_active_students()
+        students_in_class = [s.get('student_id') for s in active_students if s.get('class_name') == assigned_class]
+        total_students = len(students_in_class)
+        
+        # Filter today's attendance for this class
+        today_records = attendance.get_today_attendance(person_type='student')
+        class_records = [r for r in today_records if r.get('student_id') in students_in_class]
+        present_today = len([r for r in class_records if r.get('status') in ['Present', 'Late']])
+        absent_today = len([r for r in class_records if r.get('status') == 'Absent'])
+    else:
+        # Principal view - entire school (we count students mostly for dashboard)
+        total_students = student.get_student_count()
+        present_today = attendance.get_present_count_today(person_type=None)
+        absent_today = attendance.get_absent_count_today(person_type=None)
     
     attendance_rate = 0
     if total_students and total_students > 0:

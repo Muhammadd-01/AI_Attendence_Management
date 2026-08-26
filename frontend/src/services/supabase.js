@@ -14,6 +14,7 @@ export async function uploadFaceImage(personId, file, index, bucket = 'student-f
 
   // Try primary bucket, fallback to student-faces if teacher-faces is not created
   const bucketsToTry = [bucket, 'student-faces', 'faces'];
+  let lastError = null;
 
   for (const b of bucketsToTry) {
     try {
@@ -30,10 +31,16 @@ export async function uploadFaceImage(personId, file, index, bucket = 'student-f
           .from(b)
           .getPublicUrl(filePath);
         return urlData.publicUrl;
+      } else if (error) {
+        lastError = error;
       }
     } catch (e) {
-      // try next bucket
+      lastError = e;
     }
+  }
+
+  if (lastError && lastError.message && lastError.message.toLowerCase().includes('bucket not found')) {
+    throw new Error(`Storage Bucket Not Found. Please create a public bucket named '${bucket}' in your Supabase dashboard.`);
   }
 
   return null;

@@ -7,7 +7,9 @@ recognition_bp = Blueprint('recognition', __name__)
 @recognition_bp.route('/start', methods=['POST'])
 def start_session():
     try:
-        result = recognition_service.start_session()
+        data = request.get_json(silent=True) or {}
+        allowed_class = data.get('allowedClass')
+        result = recognition_service.start_session(allowed_class=allowed_class)
         return success_response(result)
     except Exception as e:
         return error_response(str(e))
@@ -41,7 +43,8 @@ def scan_frame():
     try:
         data = request.get_json(silent=True) or {}
         image_data = data.get('image')
-        res = recognition_service.detect_and_recognize_frame(image_data=image_data)
+        allowed_class = data.get('allowedClass')
+        res = recognition_service.detect_and_recognize_frame(image_data=image_data, allowed_class=allowed_class)
         return success_response(res)
     except Exception as e:
         return error_response(str(e))

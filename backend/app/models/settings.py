@@ -41,7 +41,7 @@ def update_settings(data):
         db = get_db()
         filtered_data = {k: v for k, v in data.items() if k in DEFAULT_SETTINGS}
         if filtered_data:
-            filtered_data['updated_at'] = datetime.datetime.utcnow()
+            filtered_data['updated_at'] = datetime.datetime.now()
             db.collection('settings').document('app_settings').set(filtered_data, merge=True)
     except Exception:
         pass

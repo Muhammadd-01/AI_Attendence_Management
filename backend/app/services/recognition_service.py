@@ -118,8 +118,8 @@ class RecognitionService:
         except Exception as e:
             logger.error(f"Error recording unified attendance callback: {e}")
 
-    def detect_and_recognize_frame(self, image_data=None):
-        """Processes a frame either from base64 payload or active camera"""
+    def detect_and_recognize_frame(self, image_data=None, allowed_class=None):
+        """Processes a single frame and returns bounding boxes and recognition results"""
         if not self._initialized:
             self.init_pipeline()
             
@@ -132,7 +132,7 @@ class RecognitionService:
                 np_arr = np.frombuffer(img_bytes, np.uint8)
                 frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             except Exception as e:
-                logger.error(f"Frame decode error: {e}")
+                logger.error(f"Failed to decode base64 in detect_and_recognize_frame: {e}")
                 frame = None
         elif self.camera and self.camera.is_opened():
             ret, frame = self.camera.get_frame()
@@ -153,12 +153,13 @@ class RecognitionService:
             
             matches = []
             for i, enc in enumerate(encodings):
-                rec = self.recognizer.recognize(enc)
+                rec = self.recognizer.recognize(enc, allowed_class)
                 s_id = rec.get('student_id')
                 is_teacher = str(s_id).startswith('TCH') or str(s_id).startswith('T-')
                 matches.append({
                     'student_id': s_id,
                     'name': rec.get('name', 'Unknown Face'),
+                    'class_name': rec.get('class_name', ''),
                     'confidence': float(rec.get('confidence', 0.0)),
                     'recognized': bool(rec.get('recognized', False)),
                     'role': 'teacher' if is_teacher else 'student',
@@ -188,14 +189,14 @@ class RecognitionService:
             "users": list(all_encs.keys())
         }
 
-    def start_session(self, classroom_name="Classroom A"):
+    def start_session(self, allowed_class=None, classroom_name="Classroom A"):
         if not self._initialized:
             self.init_pipeline()
             
         session_info = attendance.create_session(classroom_name)
         self.active_session_id = session_info.get('session_id')
         if self.attendance_processor:
-            self.attendance_processor.start_session()
+            self.attendance_processor.start_session(allowed_class=allowed_class)
         return session_info
 
     def stop_session(self):
@@ -238,8 +239,8 @@ def init_pipeline():
 def sync_all():
     return _recognition_service.sync_all()
 
-def start_session(classroom_name="Classroom A"):
-    return _recognition_service.start_session(classroom_name)
+def start_session(allowed_class=None, classroom_name="Classroom A"):
+    return _recognition_service.start_session(allowed_class, classroom_name)
 
 def stop_session():
     return _recognition_service.stop_session()
@@ -250,8 +251,8 @@ def get_status():
 def get_latest_results():
     return _recognition_service.get_latest_results()
 
-def detect_and_recognize_frame(image_data=None):
-    return _recognition_service.detect_and_recognize_frame(image_data)
+def detect_and_recognize_frame(image_data=None, allowed_class=None):
+    return _recognition_service.detect_and_recognize_frame(image_data, allowed_class)
 
 def get_camera_stream():
     return _recognition_service.get_camera_stream()

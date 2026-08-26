@@ -81,8 +81,12 @@ def manual_check_in():
                 if s_matches and not student_name:
                     student_name = s_matches[0].to_dict().get('name', 'Student')
 
-        if not student_name:
-            student_name = 'Faculty Member' if person_type == 'teacher' else 'Student'
+        if not student_name or student_name == 'Unknown':
+            return error_response("Unknown face detected.", 400)
+            
+        # Check if already checked in today
+        if attendance_model.is_checked_in_today(student_id):
+            return success_response({"already_checked_in": True}, f"{person_type.capitalize()} attendance was already recorded today.")
 
         record = attendance_model.check_in(
             student_id=student_id, 

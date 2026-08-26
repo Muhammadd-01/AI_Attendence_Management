@@ -30,6 +30,7 @@ def create_app(config_class=Config):
     from app.routes.reports import reports_bp
     from app.routes.analytics import analytics_bp
     from app.routes.settings import settings_bp
+    from app.routes.auth import auth_bp
     
     app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
     app.register_blueprint(students_bp, url_prefix='/api/students')
@@ -39,6 +40,7 @@ def create_app(config_class=Config):
     app.register_blueprint(reports_bp, url_prefix='/api/reports')
     app.register_blueprint(analytics_bp, url_prefix='/api/analytics')
     app.register_blueprint(settings_bp, url_prefix='/api/settings')
+    app.register_blueprint(auth_bp, url_prefix='/api/auth')
     
     @app.route('/api/health')
     def health_check():
