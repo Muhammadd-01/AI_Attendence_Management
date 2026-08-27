@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FileText, Download, Calendar, User, BarChart2, RefreshCw, 
-  Clock, CheckCircle2, Users, GraduationCap
+  Clock, CheckCircle2, Users, GraduationCap, Search
 } from 'lucide-react';
 import StatCard from '../components/StatCard';
 import AttendanceBarChart from '../charts/AttendanceBarChart';
@@ -10,6 +10,7 @@ import TrendLineChart from '../charts/TrendLineChart';
 import StatusBadge from '../components/StatusBadge';
 import { getDailyReport, getMonthlyReport, getStudentReport, exportCSV } from '../services/reportsApi';
 import { getStudents } from '../services/studentApi';
+import { formatTime } from '../utils/formatters';
 import { useApp } from '../context/AppContext';
 import toast from 'react-hot-toast';
 
@@ -24,6 +25,7 @@ export default function Reports() {
   const [teachers, setTeachers] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState('');
   const [selectedTeacher, setSelectedTeacher] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   
   // Real report data states
   const [dailyData, setDailyData] = useState(null);
@@ -53,6 +55,7 @@ export default function Reports() {
   }, []);
 
   useEffect(() => {
+    setSearchQuery('');
     fetchReport();
   }, [activeTab, selectedDate, selectedStudent, personTypeFilter]);
 
@@ -182,64 +185,105 @@ export default function Reports() {
         >
           {activeTab === 'daily' && (
             <div className="space-y-6">
-              <div className="flex items-center gap-3">
-                <input 
-                  type="date" 
-                  value={selectedDate} 
-                  onChange={e => setSelectedDate(e.target.value)}
-                  className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-slate-800 dark:text-slate-100 font-semibold shadow-sm outline-none focus:ring-2 focus:ring-primary-500" 
-                />
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="date" 
+                    value={selectedDate} 
+                    onChange={e => setSelectedDate(e.target.value)}
+                    className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-slate-800 dark:text-slate-100 font-semibold shadow-sm outline-none focus:ring-2 focus:ring-primary-500" 
+                  />
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input 
+                      type="text" 
+                      placeholder="Search name or ID..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      className="pl-9 pr-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs text-slate-800 dark:text-slate-100 font-semibold shadow-sm outline-none focus:ring-2 focus:ring-primary-500 w-full sm:w-64 transition-all"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-                <StatCard title="Total Audited" value={dailyData?.total ?? 0} icon={FileText} color="primary" />
-                <StatCard title="Present" value={dailyData?.present ?? 0} icon={FileText} color="success" />
-                <StatCard title="Late Check-ins" value={dailyData?.late ?? 0} icon={FileText} color="warning" />
-                <StatCard title="Absent" value={dailyData?.absent ?? 0} icon={FileText} color="danger" />
-                <StatCard title="Attendance Rate" value={`${dailyData?.attendance_rate ?? 0}%`} icon={FileText} color="info" />
-              </div>
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-20">
+                  <div className="w-8 h-8 border-4 border-primary-500/30 border-t-primary-500 rounded-full animate-spin"></div>
+                  <p className="text-slate-400 text-sm mt-4 font-medium animate-pulse">Generating Report Data...</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                    <StatCard title="Total Audited" value={dailyData?.total ?? 0} icon={FileText} color="primary" />
+                    <StatCard title="Present" value={dailyData?.present ?? 0} icon={FileText} color="success" />
+                    <StatCard title="Late Check-ins" value={dailyData?.late ?? 0} icon={FileText} color="warning" />
+                    <StatCard title="Absent" value={dailyData?.absent ?? 0} icon={FileText} color="danger" />
+                    <StatCard title="Attendance Rate" value={`${dailyData?.attendance_rate ?? 0}%`} icon={FileText} color="info" />
+                  </div>
 
-              <div className="bg-white/80 dark:bg-slate-800/90 backdrop-blur-xl rounded-3xl shadow-sm border border-slate-200/80 dark:border-slate-700/80 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-slate-400 bg-slate-50/50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700 text-[11px] font-semibold uppercase tracking-wider">
-                      <th className="px-6 py-4">{personTypeFilter === 'teacher' ? 'Faculty Member' : 'Student'}</th>
-                      <th className="px-6 py-4">Role Designation</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4">IN Time</th>
-                      <th className="px-6 py-4">OUT Time</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100/60 dark:divide-slate-700/60">
-                    {dailyData?.records && dailyData.records.length > 0 ? (
-                      dailyData.records
-                        .filter(r => {
-                          const isTeacher = r.person_type === 'teacher' || String(r.student_id || '').startsWith('TCH');
-                          return isPrincipal ? (personTypeFilter === 'teacher' ? isTeacher : !isTeacher) : !isTeacher;
-                        })
-                        .map((r, i) => (
-                          <tr key={r.id || i} className="hover:bg-slate-50/60 dark:hover:bg-slate-700/30 transition-colors">
-                            <td className="px-6 py-3.5 font-semibold text-xs text-slate-800 dark:text-slate-200">
-                              {r.student_name || r.name}
+                  <div className="bg-white/80 dark:bg-slate-800/90 backdrop-blur-xl rounded-3xl shadow-sm border border-slate-200/80 dark:border-slate-700/80 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-slate-400 bg-slate-50/50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700 text-[11px] font-semibold uppercase tracking-wider">
+                          <th className="px-6 py-4">{personTypeFilter === 'teacher' ? 'Faculty Member' : 'Student'}</th>
+                          <th className="px-6 py-4">Role Designation</th>
+                          <th className="px-6 py-4">Status</th>
+                          <th className="px-6 py-4">IN Time</th>
+                          <th className="px-6 py-4">OUT Time</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100/60 dark:divide-slate-700/60">
+                        {dailyData?.records && dailyData.records.length > 0 ? (
+                          (() => {
+                            const filtered = dailyData.records.filter(r => {
+                              const isTeacher = r.person_type === 'teacher' || String(r.student_id || '').startsWith('TCH');
+                              const roleMatch = isPrincipal ? (personTypeFilter === 'teacher' ? isTeacher : !isTeacher) : !isTeacher;
+                              if (!roleMatch) return false;
+                              
+                              if (searchQuery) {
+                                const q = searchQuery.toLowerCase();
+                                return (r.student_name || r.name || '').toLowerCase().includes(q) || 
+                                       (r.student_id || '').toLowerCase().includes(q);
+                              }
+                              return true;
+                            });
+
+                            if (filtered.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={5} className="px-6 py-8 text-center text-slate-400 text-xs">
+                                    No records match your search '{searchQuery}'.
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return filtered.map((r, i) => (
+                              <tr key={r.id || i} className="hover:bg-slate-50/60 dark:hover:bg-slate-700/30 transition-colors">
+                                <td className="px-6 py-3.5 font-semibold text-xs text-slate-800 dark:text-slate-200">
+                                  {r.student_name || r.name}
+                                </td>
+                                <td className="px-6 py-3.5 font-mono text-[11px] text-slate-400">
+                                  {r.student_id} • {(r.person_type === 'teacher' || String(r.student_id || '').startsWith('TCH')) ? 'Teacher' : 'Student'}
+                                </td>
+                                <td className="px-6 py-3.5"><StatusBadge status={r.status || 'Present'} /></td>
+                                <td className="px-6 py-3.5 text-slate-600 dark:text-slate-300 text-xs font-mono">{r.check_in_time ? formatTime(r.check_in_time) : '—'}</td>
+                                <td className="px-6 py-3.5 text-slate-600 dark:text-slate-300 text-xs font-mono">{r.check_out_time ? formatTime(r.check_out_time) : '—'}</td>
+                              </tr>
+                            ));
+                          })()
+                        ) : (
+                          <tr>
+                            <td colSpan={5} className="px-6 py-8 text-center text-slate-400 text-xs">
+                              No {personTypeFilter === 'teacher' ? 'Faculty' : 'Student'} attendance records found for {selectedDate}.
                             </td>
-                            <td className="px-6 py-3.5 font-mono text-[11px] text-slate-400">
-                              {r.student_id} • {(r.person_type === 'teacher' || String(r.student_id || '').startsWith('TCH')) ? 'Teacher' : 'Student'}
-                            </td>
-                            <td className="px-6 py-3.5"><StatusBadge status={r.status || 'Present'} /></td>
-                            <td className="px-6 py-3.5 text-slate-600 dark:text-slate-300 text-xs font-mono">{r.check_in_time || '—'}</td>
-                            <td className="px-6 py-3.5 text-slate-600 dark:text-slate-300 text-xs font-mono">{r.check_out_time || '—'}</td>
                           </tr>
-                        ))
-                    ) : (
-                      <tr>
-                        <td colSpan={5} className="px-6 py-8 text-center text-slate-400 text-xs">
-                          No {personTypeFilter === 'teacher' ? 'Faculty' : 'Student'} attendance records found for {selectedDate}.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -262,13 +306,29 @@ export default function Reports() {
 
           {activeTab === 'student' && (
             <div className="space-y-6">
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Search student to filter list..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="pl-9 pr-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs text-slate-800 dark:text-slate-100 font-semibold shadow-sm outline-none focus:ring-2 focus:ring-primary-500 w-full transition-all"
+                  />
+                </div>
                 <select 
                   value={selectedStudent} 
                   onChange={e => setSelectedStudent(e.target.value)}
-                  className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-slate-800 dark:text-slate-100 font-semibold shadow-sm outline-none focus:ring-2 focus:ring-primary-500"
+                  className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-slate-800 dark:text-slate-100 font-semibold shadow-sm outline-none focus:ring-2 focus:ring-primary-500 w-full sm:w-auto"
                 >
-                  {students.map(s => (
+                  {students
+                    .filter(s => {
+                      if (!searchQuery) return true;
+                      const q = searchQuery.toLowerCase();
+                      return (s.name || '').toLowerCase().includes(q) || (s.student_id || s.id || '').toLowerCase().includes(q);
+                    })
+                    .map(s => (
                     <option key={s.student_id || s.id} value={s.student_id || s.id}>
                       {s.name} ({s.student_id || s.id}) — {s.class_name}
                     </option>
@@ -276,48 +336,55 @@ export default function Reports() {
                 </select>
               </div>
 
-              {studentData && (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <StatCard title="Total Sessions" value={studentData.total_sessions ?? 0} icon={FileText} color="primary" />
-                    <StatCard title="Present" value={studentData.present ?? 0} icon={CheckCircle2} color="success" />
-                    <StatCard title="Absent" value={studentData.absent ?? 0} icon={FileText} color="danger" />
-                    <StatCard title="Attendance Rate" value={`${studentData.attendance_rate ?? 0}%`} icon={Clock} color="info" />
-                  </div>
-
-                  <div className="bg-white/80 dark:bg-slate-800/90 backdrop-blur-xl rounded-3xl shadow-sm border border-slate-200/80 dark:border-slate-700/80 overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-slate-400 bg-slate-50/50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700 text-[11px] font-semibold uppercase tracking-wider">
-                          <th className="px-6 py-4">Date</th>
-                          <th className="px-6 py-4">Status</th>
-                          <th className="px-6 py-4">Check In</th>
-                          <th className="px-6 py-4">Check Out</th>
-                          <th className="px-6 py-4">Duration</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100/60 dark:divide-slate-700/60">
-                        {studentData.history && studentData.history.length > 0 ? (
-                          studentData.history.map((h, i) => (
-                            <tr key={h.id || i} className="hover:bg-slate-50/60 dark:hover:bg-slate-700/30 transition-colors">
-                              <td className="px-6 py-3.5 font-mono text-xs text-slate-700 dark:text-slate-300">{h.date}</td>
-                              <td className="px-6 py-3.5"><StatusBadge status={h.status} /></td>
-                              <td className="px-6 py-3.5 text-xs text-slate-500 font-mono">{h.check_in_time || '—'}</td>
-                              <td className="px-6 py-3.5 text-xs text-slate-500 font-mono">{h.check_out_time || '—'}</td>
-                              <td className="px-6 py-3.5 text-xs text-slate-500">{h.duration_minutes ? `${h.duration_minutes}m` : '—'}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={5} className="px-6 py-8 text-center text-slate-400 text-xs">
-                              No history found for this student.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-20">
+                  <div className="w-8 h-8 border-4 border-primary-500/30 border-t-primary-500 rounded-full animate-spin"></div>
+                  <p className="text-slate-400 text-sm mt-4 font-medium animate-pulse">Generating Report Data...</p>
                 </div>
+              ) : (
+                studentData && (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      <StatCard title="Total Sessions" value={studentData.total_sessions ?? 0} icon={FileText} color="primary" />
+                      <StatCard title="Present" value={studentData.present ?? 0} icon={CheckCircle2} color="success" />
+                      <StatCard title="Absent" value={studentData.absent ?? 0} icon={FileText} color="danger" />
+                      <StatCard title="Attendance Rate" value={`${studentData.attendance_rate ?? 0}%`} icon={Clock} color="info" />
+                    </div>
+
+                    <div className="bg-white/80 dark:bg-slate-800/90 backdrop-blur-xl rounded-3xl shadow-sm border border-slate-200/80 dark:border-slate-700/80 overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-slate-400 bg-slate-50/50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700 text-[11px] font-semibold uppercase tracking-wider">
+                            <th className="px-6 py-4">Date</th>
+                            <th className="px-6 py-4">Status</th>
+                            <th className="px-6 py-4">Check In</th>
+                            <th className="px-6 py-4">Check Out</th>
+                            <th className="px-6 py-4">Duration</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100/60 dark:divide-slate-700/60">
+                          {studentData.history && studentData.history.length > 0 ? (
+                            studentData.history.map((h, i) => (
+                              <tr key={h.id || i} className="hover:bg-slate-50/60 dark:hover:bg-slate-700/30 transition-colors">
+                                <td className="px-6 py-3.5 font-mono text-xs text-slate-700 dark:text-slate-300">{h.date}</td>
+                                <td className="px-6 py-3.5"><StatusBadge status={h.status} /></td>
+                                <td className="px-6 py-3.5 text-xs text-slate-500 font-mono">{h.check_in_time ? formatTime(h.check_in_time) : '—'}</td>
+                                <td className="px-6 py-3.5 text-xs text-slate-500 font-mono">{h.check_out_time ? formatTime(h.check_out_time) : '—'}</td>
+                                <td className="px-6 py-3.5 text-xs text-slate-500">{h.duration_minutes ? `${h.duration_minutes}m` : '—'}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={5} className="px-6 py-8 text-center text-slate-400 text-xs">
+                                No history found for this student.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
               )}
             </div>
           )}

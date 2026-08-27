@@ -2,7 +2,10 @@ from app.database.connection import get_db
 import datetime
 
 DEFAULT_SETTINGS = {
-    'face_match_threshold': 0.55,
+    'school_name': 'My School',
+    'academic_year': '2023-2024',
+    'face_match_threshold': 0.42,
+    'blur_threshold': 100.0,
     'recognition_cooldown': 30,
     'session_duration': 60,
     'camera_index': 0,

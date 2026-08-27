@@ -27,8 +27,10 @@ export default function StudentKiosk() {
   const [teachersList, setTeachersList] = useState([]);
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Real-time automatic AI detected person (null when nobody is in frame)
+  // Real-time automatic AI detected person (primary focus for UI)
   const [detectedFace, setDetectedFace] = useState(null);
+  // All detected faces for multi-box rendering
+  const [detectedFaces, setDetectedFaces] = useState([]);
   const [isScanningActive, setIsScanningActive] = useState(true);
   
   const lastUnknownToastTime = useRef(0);
@@ -74,6 +76,22 @@ export default function StudentKiosk() {
     authStatusRef.current = authStatus;
   }, [authStatus]);
 
+  // Day-scoped processed IDs: prevents duplicate AI auto-triggers even after page switches
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const getProcessedSet = (action) => {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(`kiosk_processed_${action}`) || '{}');
+      if (stored.date === todayKey) return new Set(stored.ids || []);
+    } catch {}
+    return new Set();
+  };
+  const markProcessed = (action, id) => {
+    const s = getProcessedSet(action);
+    s.add(id);
+    sessionStorage.setItem(`kiosk_processed_${action}`, JSON.stringify({ date: todayKey, ids: [...s] }));
+  };
+  const isAlreadyProcessed = (action, id) => getProcessedSet(action).has(id);
+
   const lastCheckedInIdRef = useRef(null);
   const lockCountRef = useRef(0);
 
@@ -95,9 +113,20 @@ export default function StudentKiosk() {
       return;
     }
 
+    // Check if already processed today (prevents duplicate triggers after page switch)
+    if (isAlreadyProcessed(actionType, person.id)) {
+      setDetectedFace(prev => prev ? { ...prev, alreadyCheckedIn: true } : prev);
+      toast.success(`${person.roleLabel || 'Faculty'} ${person.name} has already ${actionType === 'check-in' ? 'checked in' : 'checked out'} today.`, {
+        icon: '✅', duration: 3000
+      });
+      lastCheckedInIdRef.current = person.id;
+      return;
+    }
+
     setAuthStatus('scanning');
     try {
       let record;
+      let isAlready = false;
       if (actionType === 'check-in') {
         const res = await recordCheckIn({
           student_id: person.id,
@@ -108,6 +137,7 @@ export default function StudentKiosk() {
         record = res?.data || res;
         
         if (record?.already_checked_in) {
+          isAlready = true;
           toast.success(`${person.roleLabel || 'Faculty'} ${person.name} (${person.id}) is ALREADY CHECKED IN today.`, {
             icon: '✅',
             duration: 4000
@@ -123,10 +153,23 @@ export default function StudentKiosk() {
           person_type: 'teacher'
         });
         record = res?.data || res;
-        toast.success(`Check-Out Completed: ${person.roleLabel || 'Faculty'} ${person.name} (${person.id})`);
+        
+        if (record?.already_checked_out) {
+          isAlready = true;
+          toast.success(`${person.roleLabel || 'Faculty'} ${person.name} (${person.id}) has ALREADY CHECKED OUT today.`, {
+            icon: '✅',
+            duration: 4000
+          });
+          setDetectedFace(prev => prev ? { ...prev, alreadyCheckedIn: true } : prev);
+        } else {
+          toast.success(`Check-Out Completed: ${person.roleLabel || 'Faculty'} ${person.name} (${person.id})`, { duration: 4000 });
+        }
       }
 
+      // Mark this person as processed for today so AI doesn't re-trigger
+      markProcessed(actionType, person.id);
       lastCheckedInIdRef.current = person.id;
+      
       setVerifiedPerson({
         name: person.name,
         id: person.id,
@@ -138,12 +181,13 @@ export default function StudentKiosk() {
         checkOutTime: record?.check_out_time || formatTime(new Date().toISOString()),
         duration: record?.duration_minutes ? formatDurationMins(record.duration_minutes) : 'Calculating...',
         time: formatTime(new Date().toISOString()),
-        already_checked_in: record?.already_checked_in
+        already_checked_in: record?.already_checked_in,
+        already_checked_out: record?.already_checked_out
       });
       setAuthStatus('success');
 
-      // Auto-reset modal for next attendee (2s for already checked in, 2.5s for new check-in)
-      const dismissDelay = record?.already_checked_in ? 2000 : 2500;
+      // Auto-reset modal for next attendee (2s for already processed, 2.5s for new)
+      const dismissDelay = isAlready ? 2000 : 2500;
       setTimeout(() => {
         setAuthStatus('idle');
         setVerifiedPerson(null);
@@ -193,47 +237,72 @@ export default function StudentKiosk() {
         }
 
         if (Array.isArray(results) && results.length > 0) {
-          const match = results[0];
-          const isTeacher = String(match.student_id).startsWith('TCH') || String(match.student_id).startsWith('T-') || String(match.student_id).startsWith('PRN') || match.role === 'teacher';
-          const personObj = {
-            id: match.student_id,
-            name: match.name || (match.recognized ? 'Verified Faculty' : (match.error_message ? 'STUDENT (RESTRICTED)' : 'Unknown Face')),
-            role: isTeacher ? 'teacher' : 'student',
-            roleLabel: isTeacher ? 'Faculty Member' : (match.roleLabel || 'Student'),
-            confidence: Math.round((match.confidence || 0.96) * 100),
-            error: !match.recognized || match.error || match.name === 'Unknown' || !isTeacher,
-            box_top_pct: match.box_top_pct,
-            box_bottom_pct: match.box_bottom_pct,
-            box_left_pct: match.box_left_pct,
-            box_right_pct: match.box_right_pct,
-            box_width_pct: match.box_width_pct,
-            box_height_pct: match.box_height_pct
-          };
-          setDetectedFace(personObj);
+          const mappedFaces = results.map(match => {
+            const isTeacher = String(match.student_id).startsWith('TCH') || String(match.student_id).startsWith('T-') || String(match.student_id).startsWith('PRN') || match.role === 'teacher';
+            const isAlready = isTeacher && match.student_id ? isAlreadyProcessed(actionType, match.student_id) : false;
+            
+            return {
+              id: match.student_id,
+              name: match.name || (match.recognized ? 'Verified Faculty' : (match.error_message ? 'STUDENT (RESTRICTED)' : 'Unknown Face')),
+              role: isTeacher ? 'teacher' : 'student',
+              roleLabel: isTeacher ? 'Faculty Member' : (match.roleLabel || 'Student'),
+              confidence: Math.round((match.confidence || 0.96) * 100),
+              error: !match.recognized || match.error || match.name === 'Completely Different Person' || !isTeacher,
+              is_student_kiosk_violation: match.is_student_kiosk_violation,
+              alreadyCheckedIn: isAlready,
+              box_top_pct: match.box_top_pct,
+              box_bottom_pct: match.box_bottom_pct,
+              box_left_pct: match.box_left_pct,
+              box_right_pct: match.box_right_pct,
+              box_width_pct: match.box_width_pct,
+              box_height_pct: match.box_height_pct
+            };
+          });
+          
+          setDetectedFaces(mappedFaces);
+          // Set primary targeted face for UI info display (prioritizing valid teachers, then the biggest/first face)
+          const primaryFace = mappedFaces.find(p => !p.error && p.role === 'teacher') || mappedFaces[0];
+          setDetectedFace(primaryFace);
+          
+          // Process check-in for the FIRST valid teacher we see in the array who HAS NOT been checked in yet (fixes multi-scanning)
+          const validTeacher = mappedFaces.find(p => !p.error && p.role === 'teacher' && p.id && !p.alreadyCheckedIn && lastCheckedInIdRef.current !== p.id);
 
-          if (match.recognized && match.student_id && isTeacher) {
-            // Instant Automatic Check-In Trigger on Faculty Face Detection
-            if (authStatusRef.current === 'idle' && lastCheckedInIdRef.current !== match.student_id) {
+          if (validTeacher) {
+            // Instant Automatic Check-In/Out Trigger on Faculty Face Detection
+            if (authStatusRef.current === 'idle') {
               lockCountRef.current += 1;
               if (lockCountRef.current >= 1) {
-                executeAttendance(personObj);
+                executeAttendance(validTeacher);
               }
             }
           } else {
             lockCountRef.current = 0;
           }
-          return;
+          
+          // Clear any pending removal timeout
+          if (window.kioskFaceRemovalTimeout) {
+            clearTimeout(window.kioskFaceRemovalTimeout);
+            window.kioskFaceRemovalTimeout = null;
+          }
+        } else {
+          // Add a 1.2-second persistence debounce before clearing the face results.
+          if (!window.kioskFaceRemovalTimeout) {
+            window.kioskFaceRemovalTimeout = setTimeout(() => {
+              setDetectedFaces([]);
+              setDetectedFace(null);
+              window.kioskFaceRemovalTimeout = null;
+            }, 1200);
+          }
         }
-
-        // Instant Face Removal: Clear instantly with 0ms delay when face leaves camera
-        setDetectedFace(null);
-        lockCountRef.current = 0;
       } catch (err) {
         // silent polling catch
       }
     }, 450);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (window.kioskFaceRemovalTimeout) clearTimeout(window.kioskFaceRemovalTimeout);
+    };
   }, [isScanningActive, authStatus, user]);  // Hardware Touch ID Fingerprint Scan (Faculty & Staff Only)
   const handleFingerprintScan = async () => {
     setAuthStatus('scanning');
@@ -338,7 +407,12 @@ export default function StudentKiosk() {
 
           <div className="flex bg-slate-900/90 border border-slate-800 p-1 rounded-2xl">
             <button
-              onClick={() => setActionType('check-in')}
+              onClick={() => {
+                setActionType('check-in');
+                lastCheckedInIdRef.current = null;
+                setDetectedFace(null);
+                setDetectedFaces([]);
+              }}
               className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${
                 actionType === 'check-in'
                   ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
@@ -350,7 +424,12 @@ export default function StudentKiosk() {
             </button>
 
             <button
-              onClick={() => setActionType('check-out')}
+              onClick={() => {
+                setActionType('check-out');
+                lastCheckedInIdRef.current = null;
+                setDetectedFace(null);
+                setDetectedFaces([]);
+              }}
               className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${
                 actionType === 'check-out'
                   ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
@@ -390,7 +469,7 @@ export default function StudentKiosk() {
                   </h2>
                   <p className="text-xs text-slate-400">
                     {detectedFace 
-                      ? (detectedFace.error ? 'Student / Unregistered Face' : `Locked: Faculty ${detectedFace.name}`) 
+                      ? (detectedFace.is_student_kiosk_violation ? 'Student detected in Faculty Kiosk' : detectedFace.error ? 'Completely Different Person / Unregistered' : `Locked: Faculty ${detectedFace.name}`) 
                       : 'Watching camera • Teachers & Principal step into frame'}
                   </p>
                 </div>
@@ -399,15 +478,17 @@ export default function StudentKiosk() {
               {/* Presence Status Tag */}
               <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-md border ${
                 detectedFace 
-                  ? (detectedFace.error 
-                      ? 'bg-red-950/80 text-red-400 border-red-800/60'
-                      : detectedFace.alreadyCheckedIn
-                        ? 'bg-blue-950/80 text-blue-400 border-blue-800/60'
-                        : 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60')
+                  ? (detectedFace.is_student_kiosk_violation
+                      ? 'bg-blue-950/80 text-blue-400 border-blue-800/60'
+                      : detectedFace.error 
+                        ? 'bg-red-950/80 text-red-400 border-red-800/60'
+                        : detectedFace.alreadyCheckedIn
+                          ? 'bg-blue-950/80 text-blue-400 border-blue-800/60'
+                          : 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60')
                   : 'bg-slate-800 text-slate-400 border-slate-700'
               }`}>
                 {detectedFace 
-                  ? (detectedFace.error ? 'ACCESS RESTRICTED' : detectedFace.alreadyCheckedIn ? 'ALREADY RECORDED' : 'FACULTY DETECTED') 
+                  ? (detectedFace.is_student_kiosk_violation ? 'STUDENT DETECTED (RESTRICTED)' : detectedFace.error ? 'ACCESS RESTRICTED' : detectedFace.alreadyCheckedIn ? 'ALREADY RECORDED' : 'FACULTY DETECTED') 
                   : 'NO PERSON DETECTED'}
               </span>
             </div>
@@ -419,33 +500,37 @@ export default function StudentKiosk() {
               {/* Holographic AI HUD Overlay */}
               <div className="absolute inset-0 border-2 border-primary-500/20 rounded-2xl pointer-events-none flex flex-col items-center justify-between p-4">
                 <div className="w-full flex items-center justify-between text-[10px] font-mono text-slate-400">
-                  <span className="bg-black/60 px-2 py-0.5 rounded-md backdrop-blur-xs border border-white/10 flex items-center gap-1">
-                    <span className={`w-1.5 h-1.5 rounded-full ${detectedFace ? (detectedFace.error ? 'bg-red-400 animate-ping' : 'bg-emerald-400 animate-ping') : 'bg-amber-400 animate-pulse'}`} />
-                    {detectedFace ? (detectedFace.error ? 'LANDMARKS: NO MATCH FOUND' : 'LANDMARKS: 68-PTS LOCKED') : 'RADAR: SCANNING STREAM...'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-1.5 h-1.5 rounded-full ${detectedFace ? (detectedFace.error ? 'bg-red-400 animate-ping' : (actionType === 'check-out' ? 'bg-amber-400 animate-ping' : 'bg-emerald-400 animate-ping')) : 'bg-amber-400 animate-pulse'}`} />
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-mono">
+                      LIVE CAMERA STATUS
+                    </span>
+                  </div>
                   <span className="bg-black/60 px-2 py-0.5 rounded-md backdrop-blur-xs border border-white/10">
                     {detectedFace ? (detectedFace.error ? 'CONF: < 50%' : `CONF: ${detectedFace.confidence}%`) : 'TARGET: NONE'}
                   </span>
                 </div>
 
                 {/* Futuristic Holographic AI Face Mesh Grid */}
-                <AIFaceGrid detectedFace={detectedFace} authStatus={authStatus} />
+                {detectedFaces.map((face, idx) => (
+                  <AIFaceGrid key={idx} detectedFace={face} authStatus={authStatus} actionType={actionType} />
+                ))}
 
-                {/* Warning Overlay when Already Checked In */}
+                {/* Warning Overlay when Already Processed */}
                 <AnimatePresence>
-                  {detectedFace && detectedFace.alreadyCheckedIn && actionType === 'check-in' && (
+                  {detectedFace && detectedFace.alreadyCheckedIn && (
                     <motion.div
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.9 }}
-                      className="absolute inset-x-4 top-14 z-30 p-3.5 rounded-2xl bg-amber-950/95 border-2 border-amber-400 text-amber-200 text-center shadow-2xl backdrop-blur-md"
+                      className="absolute inset-x-4 top-14 z-30 p-3.5 rounded-2xl bg-cyan-950/95 border-2 border-cyan-400 text-cyan-200 text-center shadow-2xl backdrop-blur-md"
                     >
-                      <p className="font-black text-xs sm:text-sm uppercase tracking-wide flex items-center justify-center gap-2 text-amber-300">
-                        <AlertCircle className="w-5 h-5 text-amber-400 animate-pulse" />
-                        PLEASE REMOVE YOUR FACE: YOU ARE ALREADY CHECKED IN
+                      <p className="font-black text-xs sm:text-sm uppercase tracking-wide flex items-center justify-center gap-2 text-cyan-300">
+                        <AlertCircle className="w-5 h-5 text-cyan-400 animate-pulse" />
+                        PLEASE REMOVE YOUR FACE: YOU ARE ALREADY {actionType === 'check-in' ? 'CHECKED IN' : 'CHECKED OUT'}
                       </p>
-                      <p className="text-[11px] text-amber-100/90 mt-1 font-medium">
-                        Attendance is already recorded for today. Please step away for the next faculty member, or switch to Check-Out when leaving.
+                      <p className="text-[11px] text-cyan-100/90 mt-1 font-medium">
+                        Attendance is already recorded for today. Please step away for the next faculty member{actionType === 'check-in' ? ', or switch to Check-Out when leaving.' : '.'}
                       </p>
                     </motion.div>
                   )}
@@ -457,9 +542,11 @@ export default function StudentKiosk() {
                     <span className={`px-2.5 py-0.5 rounded-md backdrop-blur-xs font-bold border ${
                       detectedFace.role === 'teacher'
                         ? 'bg-emerald-900/90 text-emerald-300 border-emerald-600'
-                        : 'bg-primary-900/90 text-primary-300 border-primary-600'
+                        : detectedFace.is_student_kiosk_violation
+                          ? 'bg-blue-900/90 text-blue-300 border-blue-600'
+                          : 'bg-red-900/90 text-red-300 border-red-600'
                     }`}>
-                      {detectedFace.role === 'teacher' ? '👨‍🏫 FACULTY IDENTIFIED' : '🎓 STUDENT IDENTIFIED'}
+                      {detectedFace.role === 'teacher' ? '👨‍🏫 FACULTY IDENTIFIED' : detectedFace.is_student_kiosk_violation ? '🎓 STUDENT IDENTIFIED' : '❓ UNKNOWN PERSON IDENTIFIED'}
                     </span>
                   ) : (
                     <span className="bg-slate-900/80 text-slate-400 border border-slate-700 px-2 py-0.5 rounded-md">
@@ -469,7 +556,7 @@ export default function StudentKiosk() {
 
                   <span className={`px-2 py-0.5 rounded-md border font-bold ${
                     detectedFace 
-                      ? 'bg-black/60 text-emerald-400 border-emerald-800' 
+                      ? (actionType === 'check-out' ? 'bg-black/60 text-amber-400 border-amber-800' : 'bg-black/60 text-emerald-400 border-emerald-800')
                       : 'bg-black/60 text-slate-400 border-white/10'
                   }`}>
                     LOCK: {detectedFace ? 'ACTIVE' : 'IDLE'}
@@ -600,7 +687,7 @@ export default function StudentKiosk() {
               }`}
             >
               <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-4 border ${
-                verifiedPerson.already_checked_in
+                (verifiedPerson.already_checked_in || verifiedPerson.already_checked_out)
                   ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
                   : verifiedPerson.action === 'check-in'
                     ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
@@ -611,14 +698,14 @@ export default function StudentKiosk() {
 
               {/* Automatic Role Recognition Badge */}
               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2 border ${
-                verifiedPerson.already_checked_in
+                (verifiedPerson.already_checked_in || verifiedPerson.already_checked_out)
                   ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
                   : verifiedPerson.role === 'teacher'
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    ? (verifiedPerson.action === 'check-out' ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40')
                     : 'bg-primary-500/20 text-primary-300 border-primary-500/40'
               }`}>
-                {verifiedPerson.already_checked_in 
-                  ? (verifiedPerson.role === 'teacher' ? '👨‍🏫 FACULTY ALREADY CHECKED IN' : '🎓 STUDENT ALREADY CHECKED IN') 
+                {(verifiedPerson.already_checked_in || verifiedPerson.already_checked_out)
+                  ? (verifiedPerson.role === 'teacher' ? `👨‍🏫 FACULTY ALREADY ${verifiedPerson.action === 'check-out' ? 'CHECKED OUT' : 'CHECKED IN'}` : `🎓 STUDENT ALREADY ${verifiedPerson.action === 'check-out' ? 'CHECKED OUT' : 'CHECKED IN'}`) 
                   : (verifiedPerson.role === 'teacher' ? '👨‍🏫 FACULTY ATTENDANCE RECORDED' : '🎓 STUDENT ATTENDANCE RECORDED')}
               </span>
 

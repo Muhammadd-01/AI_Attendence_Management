@@ -15,6 +15,7 @@ def get_history():
         status = request.args.get('status')
         class_name = request.args.get('class_name')
         person_type = request.args.get('person_type')
+        search_query = request.args.get('search')
 
         result = attendance_model.get_attendance_history(
             page=page,
@@ -23,7 +24,8 @@ def get_history():
             date=date,
             status=status,
             class_name=class_name,
-            person_type=person_type
+            person_type=person_type,
+            search_query=search_query
         )
         return success_response(serialize_for_json(result))
     except Exception as e:
@@ -127,6 +129,9 @@ def manual_check_out():
                 person_type=person_type
             )
             record = attendance_model.check_out(student_id=student_id, date=date)
+
+        if record and record.get('already_checked_out'):
+            return success_response(serialize_for_json(record), f"{person_type.capitalize()} has already checked out today.")
 
         return success_response(serialize_for_json(record), f"{person_type.capitalize()} check-out duration calculated successfully")
     except Exception as e:

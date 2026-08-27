@@ -199,8 +199,8 @@ export default function MainLayout() {
       </main>
 
       {/* Perfectly Balanced Floating Bottom Dock with Sliding Active Pill */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-[96vw]">
-        <nav className="glass-dock rounded-full px-2.5 py-1.5 flex items-center justify-center gap-1 shadow-2xl border border-slate-700/60 no-scrollbar">
+      <div className="fixed bottom-4 left-0 right-0 z-50 px-2 sm:px-6 flex justify-center pointer-events-none">
+        <nav className="glass-dock pointer-events-auto rounded-full px-2.5 py-1.5 flex items-center gap-1 sm:gap-2 shadow-2xl border border-slate-700/60 overflow-x-auto no-scrollbar max-w-full">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;

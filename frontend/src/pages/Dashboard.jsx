@@ -10,6 +10,7 @@ import AttendanceBarChart from '../charts/AttendanceBarChart';
 import TrendLineChart from '../charts/TrendLineChart';
 import StatusBadge from '../components/StatusBadge';
 import { getStats, getRecentActivity, getWeeklyTrend, getMonthlyTrend } from '../services/dashboardApi';
+import { formatTime } from '../utils/formatters';
 import { useApp } from '../context/AppContext';
 import toast from 'react-hot-toast';
 
@@ -278,11 +279,12 @@ export default function Dashboard() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-slate-400 border-b border-slate-100 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider">
+              <tr className="text-left text-slate-400 border-b border-slate-100 dark:border-slate-800 text-[11px] font-semibold uppercase tracking-wider">
                 <th className="pb-3">Attendee</th>
                 <th className="pb-3">Roll ID</th>
-                <th className="pb-3">Timestamp</th>
-                <th className="pb-3">Verification</th>
+                <th className="pb-3">IN Time</th>
+                <th className="pb-3">OUT Time</th>
+                <th className="pb-3">Status</th>
                 <th className="pb-3">Confidence</th>
               </tr>
             </thead>
@@ -295,17 +297,22 @@ export default function Dashboard() {
                     </td>
                     <td className="py-3.5 font-mono text-xs text-slate-500">{r.student_id}</td>
                     <td className="py-3.5 text-xs text-slate-600 dark:text-slate-300 font-mono">
-                      {r.check_in_time || r.time || '—'}
+                      {r.check_in_time ? formatTime(r.check_in_time) : (r.time ? formatTime(r.time) : '—')}
                     </td>
-                    <td className="py-3.5"><StatusBadge status={r.status || 'Present'} /></td>
-                    <td className="py-3.5 font-bold text-xs text-emerald-600 dark:text-emerald-400">
-                      {Math.round((r.confidence || 0.95) * 100)}% Match
+                    <td className="py-3.5 text-xs text-slate-600 dark:text-slate-300 font-mono">
+                      {r.check_out_time ? formatTime(r.check_out_time) : '—'}
+                    </td>
+                    <td className="py-3.5">
+                      <StatusBadge status={r.status || 'Present'} />
+                    </td>
+                    <td className="py-3.5 font-mono text-xs text-slate-500">
+                      {r.confidence > 0 ? `${Math.round(r.confidence * 100)}%` : '—'}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-400 text-xs">
+                  <td colSpan={6} className="py-8 text-center text-slate-400 text-xs">
                     No recent activities recorded yet today.
                   </td>
                 </tr>

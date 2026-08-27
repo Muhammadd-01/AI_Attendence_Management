@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Scan, Sparkles, CheckCircle2, AlertTriangle, Cpu, ShieldCheck, Lock } from 'lucide-react';
 
-export default function AIFaceGrid({ detectedFace, isMirrored = true }) {
+export default function AIFaceGrid({ detectedFace, authStatus, actionType = 'check-in', isMirrored = true }) {
   // If no face is detected in the current camera frame, vanish INSTANTLY with zero lingering delay!
   if (!detectedFace) {
     return null;
@@ -11,28 +11,33 @@ export default function AIFaceGrid({ detectedFace, isMirrored = true }) {
   const isError = detectedFace.error;
   const isCheckedIn = detectedFace.alreadyCheckedIn;
   const isTeacher = detectedFace.role === 'teacher';
+  const isStudentKioskViolation = detectedFace.is_student_kiosk_violation;
 
-  const theme = isError
-    ? { border: 'border-red-500', shadow: 'shadow-red-500/50', stroke: '#ef4444', fill: 'rgba(239, 68, 68, 0.12)', text: 'text-red-400', bg: 'bg-red-950/90', glow: 'rgba(239, 68, 68, 0.7)' }
-    : isCheckedIn
-      ? { border: 'border-cyan-400', shadow: 'shadow-cyan-500/50', stroke: '#22d3ee', fill: 'rgba(34, 211, 238, 0.12)', text: 'text-cyan-300', bg: 'bg-cyan-950/90', glow: 'rgba(34, 211, 238, 0.7)' }
-      : isTeacher
-        ? { border: 'border-emerald-400', shadow: 'shadow-emerald-500/50', stroke: '#34d399', fill: 'rgba(52, 211, 153, 0.12)', text: 'text-emerald-300', bg: 'bg-emerald-950/90', glow: 'rgba(52, 211, 153, 0.7)' }
-        : { border: 'border-teal-400', shadow: 'shadow-teal-500/50', stroke: '#2dd4bf', fill: 'rgba(45, 212, 191, 0.12)', text: 'text-teal-300', bg: 'bg-teal-950/90', glow: 'rgba(45, 212, 191, 0.7)' };
+  const theme = isStudentKioskViolation
+    ? { border: 'border-blue-500', shadow: 'shadow-blue-500/50', stroke: '#3b82f6', fill: 'rgba(59, 130, 246, 0.12)', text: 'text-blue-400', bg: 'bg-blue-950/90', glow: 'rgba(59, 130, 246, 0.7)' }
+    : isError
+      ? { border: 'border-red-500', shadow: 'shadow-red-500/50', stroke: '#ef4444', fill: 'rgba(239, 68, 68, 0.12)', text: 'text-red-400', bg: 'bg-red-950/90', glow: 'rgba(239, 68, 68, 0.7)' }
+      : isCheckedIn
+        ? { border: 'border-cyan-400', shadow: 'shadow-cyan-500/50', stroke: '#22d3ee', fill: 'rgba(34, 211, 238, 0.12)', text: 'text-cyan-300', bg: 'bg-cyan-950/90', glow: 'rgba(34, 211, 238, 0.7)' }
+        : isTeacher
+          ? (actionType === 'check-out' 
+              ? { border: 'border-amber-500', shadow: 'shadow-amber-500/50', stroke: '#f59e0b', fill: 'rgba(245, 158, 11, 0.12)', text: 'text-amber-300', bg: 'bg-amber-950/90', glow: 'rgba(245, 158, 11, 0.7)' }
+              : { border: 'border-emerald-400', shadow: 'shadow-emerald-500/50', stroke: '#34d399', fill: 'rgba(52, 211, 153, 0.12)', text: 'text-emerald-300', bg: 'bg-emerald-950/90', glow: 'rgba(52, 211, 153, 0.7)' })
+          : { border: 'border-teal-400', shadow: 'shadow-teal-500/50', stroke: '#2dd4bf', fill: 'rgba(45, 212, 191, 0.12)', text: 'text-teal-300', bg: 'bg-teal-950/90', glow: 'rgba(45, 212, 191, 0.7)' };
 
   // Calculate dynamic bounding box percentage mapping around the actual face
   let boxStyle = {};
   if (detectedFace.box_top_pct !== undefined && detectedFace.box_width_pct !== undefined) {
-    const padX = 6;
-    const padY = 8;
-    const rawTop = Math.max(2, detectedFace.box_top_pct - padY);
-    const rawHeight = Math.min(96 - rawTop, detectedFace.box_height_pct + (padY * 2));
-    const rawWidth = Math.min(94, detectedFace.box_width_pct + (padX * 2));
+    const padX = 0;
+    const padY = 0;
+    const rawTop = Math.max(0, detectedFace.box_top_pct - padY);
+    const rawHeight = Math.min(100 - rawTop, detectedFace.box_height_pct + (padY * 2));
+    const rawWidth = Math.min(100, detectedFace.box_width_pct + (padX * 2));
     
     // In user-facing webcam, the video is horizontally mirrored
     const rawLeft = isMirrored 
-      ? Math.max(2, 100 - detectedFace.box_right_pct - padX)
-      : Math.max(2, detectedFace.box_left_pct - padX);
+      ? Math.max(0, 100 - detectedFace.box_right_pct - padX)
+      : Math.max(0, detectedFace.box_left_pct - padX);
 
     boxStyle = {
       position: 'absolute',
@@ -40,10 +45,6 @@ export default function AIFaceGrid({ detectedFace, isMirrored = true }) {
       left: `${rawLeft}%`,
       width: `${rawWidth}%`,
       height: `${rawHeight}%`,
-      minWidth: '160px',
-      minHeight: '180px',
-      maxWidth: '380px',
-      maxHeight: '440px',
       transition: 'top 0.12s ease-out, left 0.12s ease-out, width 0.12s ease-out, height 0.12s ease-out'
     };
   }
@@ -55,7 +56,7 @@ export default function AIFaceGrid({ detectedFace, isMirrored = true }) {
       exit={{ scale: 0.9, opacity: 0 }}
       transition={{ duration: 0.15 }}
       style={boxStyle}
-      className={`absolute z-20 flex flex-col items-center justify-between p-2.5 rounded-3xl border-2 ${theme.border} shadow-2xl ${theme.shadow} backdrop-blur-[1px]`}
+      className={`absolute z-20 rounded-xl border-2 ${theme.border} shadow-2xl ${theme.shadow} backdrop-blur-[1px]`}
     >
       {/* 4 High-Tech Security Safe Target Brackets with Accents */}
       <div className={`absolute -top-2.5 -left-2.5 w-6 h-6 border-t-3 border-l-3 ${theme.border} rounded-tl-lg`}>
@@ -116,7 +117,7 @@ export default function AIFaceGrid({ detectedFace, isMirrored = true }) {
 
       {/* High-Tech Biometric Sweeping Laser Beam */}
       <motion.div
-        animate={{ y: [0, 180, 0] }}
+        animate={{ top: ["0%", "98%", "0%"] }}
         transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
         className="absolute left-1 right-1 h-1 pointer-events-none rounded-full z-10"
         style={{
@@ -125,8 +126,8 @@ export default function AIFaceGrid({ detectedFace, isMirrored = true }) {
         }}
       />
 
-      {/* Top Security HUD Header */}
-      <div className="w-full flex items-center justify-between text-[8px] sm:text-[9px] font-mono text-white/95 z-20">
+      {/* Top Security HUD Header - Floating Above the Face */}
+      <div className="absolute -top-6 left-1/2 -translate-x-1/2 w-max max-w-[200%] flex items-center justify-center gap-2 text-[8px] sm:text-[9px] font-mono text-white/95 z-20">
         <span className={`${theme.bg} px-2 py-0.5 rounded-md border ${theme.border} flex items-center gap-1 shadow-lg`}>
           <ShieldCheck className="w-3 h-3 text-emerald-400" />
           <span>BIOMETRIC LOCK</span>
@@ -136,11 +137,11 @@ export default function AIFaceGrid({ detectedFace, isMirrored = true }) {
         </span>
       </div>
 
-      {/* Bottom Floating Identity Card Locked onto Face */}
+      {/* Bottom Floating Identity Card - Floating Below the Face */}
       <motion.div
         initial={{ y: 8, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className={`w-full ${theme.bg} backdrop-blur-md px-2.5 py-1.5 rounded-2xl border-2 ${theme.border} text-center shadow-2xl z-20`}
+        className={`absolute -bottom-14 left-1/2 -translate-x-1/2 w-max min-w-[140px] max-w-[250%] ${theme.bg} backdrop-blur-md px-2.5 py-1.5 rounded-2xl border-2 ${theme.border} text-center shadow-2xl z-20`}
       >
         <div className="flex items-center justify-center gap-1 mb-0.5">
           {isError ? (

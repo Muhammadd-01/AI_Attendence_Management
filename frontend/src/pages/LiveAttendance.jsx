@@ -99,20 +99,35 @@ export default function LiveAttendance() {
         if (Array.isArray(raw) && raw.length > 0) {
           setResults(raw);
           loadTodayAttendance();
-          const hasUnknown = raw.some(face => !face.recognized || face.name === 'Unknown');
+          const hasUnknown = raw.some(face => !face.recognized || face.name === 'Completely Different Person');
           if (hasUnknown) {
             lastUnknownToastTime.current = Date.now();
           }
+          
+          // Clear any pending removal timeout
+          if (window.faceRemovalTimeout) {
+            clearTimeout(window.faceRemovalTimeout);
+            window.faceRemovalTimeout = null;
+          }
         } else {
-          // Instant Face Removal: Clear immediately with 0ms delay when face leaves camera
-          setResults([]);
+          // Persistence: Wait 1.2 seconds before clearing the box. 
+          // This prevents the tracking box from flashing or disappearing during quick motion blur or head tilts.
+          if (!window.faceRemovalTimeout) {
+            window.faceRemovalTimeout = setTimeout(() => {
+              setResults([]);
+              window.faceRemovalTimeout = null;
+            }, 1200);
+          }
         }
       } catch (err) {
         // silent fail on polling
       }
     }, 450);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (window.faceRemovalTimeout) clearTimeout(window.faceRemovalTimeout);
+    };
   }, [sessionActive, loadTodayAttendance, user]);
 
   const handleStart = async () => {
@@ -284,24 +299,30 @@ export default function LiveAttendance() {
 
               {/* Futuristic Holographic AI Face Mesh Grid */}
               <div className="absolute inset-0 pointer-events-none p-4">
-                {results && results.length > 0 && !results.some(r => r.role === 'teacher' || r.is_teacher_in_room) ? (
-                  <AIFaceGrid 
-                    detectedFace={{
-                      name: results[0].name || (results[0].recognized ? 'Verified Student' : 'Unknown Face'),
-                      id: results[0].student_id,
-                      role: 'student',
-                      roleLabel: 'Student',
-                      confidence: Math.round((results[0].confidence || 0.95) * 100),
-                      error: !results[0].recognized || results[0].name === 'Unknown',
-                      alreadyCheckedIn: todayList.some(t => t.student_id === results[0].student_id),
-                      box_top_pct: results[0].box_top_pct,
-                      box_bottom_pct: results[0].box_bottom_pct,
-                      box_left_pct: results[0].box_left_pct,
-                      box_right_pct: results[0].box_right_pct,
-                      box_width_pct: results[0].box_width_pct,
-                      box_height_pct: results[0].box_height_pct
-                    }} 
-                  />
+                {results && results.length > 0 ? (
+                  results.map((res, idx) => {
+                    if (res.role === 'teacher' || res.is_teacher_in_room) return null;
+                    return (
+                      <AIFaceGrid 
+                        key={idx}
+                        detectedFace={{
+                          name: res.name || (res.recognized ? 'Verified Student' : 'Completely Different Person'),
+                          id: res.student_id,
+                          role: 'student',
+                          roleLabel: 'Student',
+                          confidence: Math.round((res.confidence || 0.95) * 100),
+                          error: !res.recognized || res.name === 'Completely Different Person',
+                          alreadyCheckedIn: todayList.some(t => t.student_id === res.student_id),
+                          box_top_pct: res.box_top_pct,
+                          box_bottom_pct: res.box_bottom_pct,
+                          box_left_pct: res.box_left_pct,
+                          box_right_pct: res.box_right_pct,
+                          box_width_pct: res.box_width_pct,
+                          box_height_pct: res.box_height_pct
+                        }} 
+                      />
+                    );
+                  })
                 ) : null}
               </div>
             </div>
@@ -349,7 +370,7 @@ export default function LiveAttendance() {
                           </div>
                           <div>
                             <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                              {r.name || (isFaculty ? 'Faculty Member' : 'Unknown Face')}
+                              {r.name || (isFaculty ? 'Faculty Member' : 'Completely Different Person')}
                             </p>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               <span className="text-[10px] font-mono text-slate-400">{r.student_id || (isFaculty ? 'Faculty' : 'Not Enrolled')}</span>

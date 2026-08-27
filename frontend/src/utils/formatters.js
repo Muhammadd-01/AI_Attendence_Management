@@ -6,8 +6,17 @@ export const formatDate = (dateStr) => {
 
 export const formatTime = (timeStr) => {
   if (!timeStr) return '';
+  // Check if it's just "HH:MM:SS" or "HH:MM"
+  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(timeStr)) {
+    const [h, m] = timeStr.split(':');
+    const d = new Date();
+    d.setHours(parseInt(h, 10));
+    d.setMinutes(parseInt(m, 10));
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  }
+  // Fallback for full ISO dates
   const date = new Date(timeStr);
-  return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  return isNaN(date.getTime()) ? timeStr : date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 };
 
 export const formatDuration = (minutes) => {
@@ -29,7 +38,7 @@ export const getStatusColor = (status) => {
     case 'absent': return 'badge-absent';
     case 'late': return 'badge-late';
     case 'half day':
-    case 'halfday': return 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800';
+    case 'halfday': return 'badge-late';
     default: return 'badge-unknown';
   }
 };

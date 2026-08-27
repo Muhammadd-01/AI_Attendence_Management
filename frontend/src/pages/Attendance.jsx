@@ -7,6 +7,7 @@ import {
 import StatusBadge from '../components/StatusBadge';
 import { getAttendanceHistory } from '../services/attendanceApi';
 import { useDebounce } from '../hooks/useDebounce';
+import { formatTime } from '../utils/formatters';
 import { useApp } from '../context/AppContext';
 import toast from 'react-hot-toast';
 
@@ -206,10 +207,10 @@ export default function Attendance() {
 
                   <td className="px-6 py-4 text-slate-600 dark:text-slate-300 text-xs font-mono">{r.date}</td>
                   <td className="px-6 py-4 text-slate-600 dark:text-slate-300 text-xs font-mono">
-                    {r.check_in_time || <span className="text-slate-300">—</span>}
+                    {r.check_in_time ? formatTime(r.check_in_time) : <span className="text-slate-300">—</span>}
                   </td>
                   <td className="px-6 py-4 text-slate-600 dark:text-slate-300 text-xs font-mono">
-                    {r.check_out_time || <span className="text-slate-300">—</span>}
+                    {r.check_out_time ? formatTime(r.check_out_time) : <span className="text-slate-300">—</span>}
                   </td>
                   <td className="px-6 py-4"><StatusBadge status={r.status || 'Present'} /></td>
                   <td className="px-6 py-4">

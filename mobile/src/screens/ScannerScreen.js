@@ -38,8 +38,24 @@ export default function ScannerScreen() {
 
           const response = await scanFrame(manipResult.base64);
           
-          if (response.success && response.people && response.people.length > 0) {
-            setResult(response.people[0]);
+          if (response?.data?.face_detected && response.data.results?.length > 0) {
+            const match = response.data.results[0];
+            const isStudent = !String(match.student_id).startsWith('TCH') && !String(match.student_id).startsWith('PRN') && match.role !== 'teacher';
+            
+            const person = {
+              id: match.student_id,
+              name: match.name || (match.recognized ? 'Student' : 'Unknown'),
+              role: isStudent ? 'student' : 'teacher',
+              confidence: Math.round((match.confidence || 0.95) * 100),
+              recognized: match.recognized,
+              error: !match.recognized || match.error || !isStudent,
+              is_faculty: !isStudent && match.recognized,
+            };
+            setResult(person);
+            
+            // Note: Auto-attendance for students could be added here similar to KioskScreen
+            // e.g., if (person.recognized && isStudent && !person.error) { recordCheckIn(...) }
+            
           } else {
             setResult(null);
           }

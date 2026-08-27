@@ -19,8 +19,9 @@ class Config:
     # Firebase
     FIREBASE_CREDENTIALS_PATH = os.getenv('FIREBASE_CREDENTIALS_PATH', 'serviceAccountKey.json')
 
-    # Face Recognition
-    FACE_MATCH_THRESHOLD = float(os.getenv('FACE_MATCH_THRESHOLD', 0.55))
+    # AI Settings
+    FACE_MATCH_THRESHOLD = float(os.getenv('FACE_MATCH_THRESHOLD', 0.42))
+    BLUR_THRESHOLD = float(os.getenv('BLUR_THRESHOLD', 100.0))
     RECOGNITION_COOLDOWN_SECONDS = int(os.getenv('RECOGNITION_COOLDOWN_SECONDS', 30))
     CAMERA_INDEX = int(os.getenv('CAMERA_INDEX', 0))
     FRAME_PROCESS_INTERVAL = int(os.getenv('FRAME_PROCESS_INTERVAL', 5))

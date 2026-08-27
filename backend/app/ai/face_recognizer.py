@@ -9,8 +9,9 @@ logger = logging.getLogger(__name__)
 class FaceRecognizer:
     def __init__(self):
         self.known_encodings = {}  # {student_id: {'name': str, 'encodings': [np.array]}}
-        # 0.48 is extremely strict and prevents false positives with strangers
-        self.threshold = 0.44 
+        # Extremely strict threshold (0.42) to permanently prevent unregistered strangers from being recognized as registered faculty/students.
+        # Default face_recognition is 0.6. 0.42 guarantees high confidence required for a match.
+        self.threshold = 0.42
         self.lock = threading.Lock()
 
     def load_encodings(self, student_encodings):
@@ -75,8 +76,9 @@ class FaceRecognizer:
         # STRICT VERIFICATION:
         # Only assign person identity if face strictly matches registered biometric model
         if best_distance <= self.threshold and best_candidate_id is not None:
-            # Map distance (e.g. 0.20 - 0.44) into accurate confidence (e.g. 98% - 75%)
-            confidence = float(max(0.70, min(1.0, 1.0 - (best_distance * 0.65))))
+            # Map distance (0.0 to threshold) into accurate confidence (100% to 70%)
+            # A perfect match (0.0 distance) = 100% confidence. At threshold (0.42) = 70% confidence.
+            confidence = float(max(0.70, min(1.0, 1.0 - ((best_distance / self.threshold) * 0.30))))
             return {
                 'student_id': best_candidate_id,
                 'name': best_candidate_name,
@@ -88,7 +90,7 @@ class FaceRecognizer:
             # Unknown / Unregistered Stranger: NEVER return any registered person's name or ID!
             return {
                 'student_id': None,
-                'name': 'Unknown Face',
+                'name': 'Completely Different Person',
                 'class_name': '',
                 'confidence': 0.0,
                 'recognized': False

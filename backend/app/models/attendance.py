@@ -76,6 +76,11 @@ def check_out(student_id, date=None):
     doc = docs[0]
     data = doc.to_dict()
         
+    if data.get('check_out_time'):
+        data['id'] = doc.id
+        data['already_checked_out'] = True
+        return data
+
     check_in_time_str = data.get('check_in_time')
     duration_minutes = None
     if check_in_time_str:
@@ -162,7 +167,7 @@ def get_student_attendance(student_id, start_date=None, end_date=None):
     results.sort(key=lambda x: str(x.get('date', '')), reverse=True)
     return results
 
-def get_attendance_history(page=1, per_page=20, student_id=None, date=None, status=None, class_name=None, person_type=None):
+def get_attendance_history(page=1, per_page=20, student_id=None, date=None, status=None, class_name=None, person_type=None, search_query=None):
     db = get_db()
     query = db.collection('attendance')
     
@@ -187,6 +192,10 @@ def get_attendance_history(page=1, per_page=20, student_id=None, date=None, stat
     
     if person_type and person_type != 'all':
         results = [r for r in results if r.get('person_type') == person_type or (person_type == 'teacher' and str(r.get('student_id','')).startswith('TCH')) or (person_type == 'student' and not str(r.get('student_id','')).startswith('TCH'))]
+        
+    if search_query:
+        q = search_query.lower()
+        results = [r for r in results if q in str(r.get('student_name', '')).lower() or q in str(r.get('student_id', '')).lower()]
         
     total = len(results)
     start = (page - 1) * per_page

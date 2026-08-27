@@ -179,14 +179,15 @@ class RecognitionService:
                     if rec.get('recognized') and not is_teacher:
                         # Student detected at Faculty Kiosk
                         matches.append({
-                            'student_id': None,
-                            'name': 'RESTRICTED (STUDENT)',
+                            'student_id': s_id,
+                            'name': rec.get('name', 'Student'),
                             'class_name': '',
                             'confidence': float(rec.get('confidence', 0.0)),
-                            'recognized': False,
+                            'recognized': True,
                             'role': 'student',
-                            'roleLabel': 'Kiosk is for Faculty & Staff Only',
+                            'roleLabel': 'Student Detected',
                             'error': True,
+                            'is_student_kiosk_violation': True,
                             'error_message': 'Access Restricted: Kiosk is for Teachers & Principal only. Students must be marked via Classroom Live Attendance.',
                             'bbox': [int(top), int(right), int(bottom), int(left)],
                             'box_top_pct': box_top_pct,
@@ -261,7 +262,7 @@ class RecognitionService:
 
                 matches.append({
                     'student_id': s_id,
-                    'name': rec.get('name', 'Unknown Face'),
+                    'name': rec.get('name', 'Completely Different Person'),
                     'class_name': rec.get('class_name', ''),
                     'confidence': float(rec.get('confidence', 0.0)),
                     'recognized': bool(rec.get('recognized', False)),
