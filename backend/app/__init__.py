@@ -1,11 +1,11 @@
 import os
 import warnings
 
-# Suppress deprecation notices from older google auth libraries on python 3.9
-warnings.filterwarnings("ignore", category=FutureWarning)
-warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", message=".*urllib3.*")
-warnings.filterwarnings("ignore", message=".*Google will update google-auth.*")
+# Suppress gRPC and multiprocessing warnings
+os.environ['GRPC_PYTHON_LOG_LEVEL'] = 'NONE'
+os.environ['GRPC_VERBOSITY'] = 'NONE'
+os.environ['GLOG_minloglevel'] = '3'
+warnings.filterwarnings("ignore")
 
 from flask import Flask
 from flask_cors import CORS
@@ -45,5 +45,12 @@ def create_app(config_class=Config):
     @app.route('/api/health')
     def health_check():
         return {'status': 'healthy', 'message': 'AI Attendance API is running'}
+
+    # Safe pre-warming of AI pipeline on server startup
+    try:
+        from app.services.recognition_service import init_pipeline
+        init_pipeline()
+    except Exception as e:
+        pass
         
     return app

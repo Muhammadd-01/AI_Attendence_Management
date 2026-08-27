@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Camera, AlertCircle, Settings2 } from 'lucide-react';
 
-const CameraFeed = forwardRef(({ streamUrl = '/video_feed', active = false, className = '', forceLocalWebcam = false }, ref) => {
+const CameraFeed = forwardRef(({ streamUrl = '/api/recognition/video_feed', active = true, className = '', forceLocalWebcam = true }, ref) => {
   const [hasError, setHasError] = useState(false);
   const [devices, setDevices] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
@@ -13,6 +13,7 @@ const CameraFeed = forwardRef(({ streamUrl = '/video_feed', active = false, clas
   useImperativeHandle(ref, () => ({
     captureFrame: async () => {
       const canvas = canvasRef.current;
+      if (!canvas) return null;
       const ctx = canvas.getContext('2d');
       
       let sourceElement = null;
@@ -20,7 +21,7 @@ const CameraFeed = forwardRef(({ streamUrl = '/video_feed', active = false, clas
         sourceElement = imgRef.current;
         canvas.width = imgRef.current.naturalWidth || 640;
         canvas.height = imgRef.current.naturalHeight || 480;
-      } else if ((forceLocalWebcam || hasError) && videoRef.current) {
+      } else if (videoRef.current && videoRef.current.readyState >= 2) {
         sourceElement = videoRef.current;
         canvas.width = videoRef.current.videoWidth || 640;
         canvas.height = videoRef.current.videoHeight || 480;
@@ -28,62 +29,61 @@ const CameraFeed = forwardRef(({ streamUrl = '/video_feed', active = false, clas
 
       if (!sourceElement || canvas.width === 0) return null;
 
-      if (forceLocalWebcam || hasError) {
-        // Handle webcam mirror flip
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-      }
-      
+      // Draw frame to canvas
       ctx.drawImage(sourceElement, 0, 0, canvas.width, canvas.height);
       
       return new Promise((resolve) => {
         canvas.toBlob((blob) => {
           resolve(blob);
-        }, 'image/jpeg', 0.95);
+        }, 'image/jpeg', 0.85);
       });
     }
   }));
 
-  // Fetch camera devices when local webcam is active
+  // Auto-connect and activate local webcam with 0ms delay
   useEffect(() => {
-    if (active && (forceLocalWebcam || hasError)) {
-      const getCameras = async () => {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true }); // trigger permission
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          const videoDevices = devices.filter(d => d.kind === 'videoinput');
-          setDevices(videoDevices);
-          if (videoDevices.length > 0 && !selectedDeviceId) {
-            setSelectedDeviceId(videoDevices[0].deviceId);
-          }
-          // Stop the temporary stream
-          stream.getTracks().forEach(track => track.stop());
-        } catch (err) {
-          console.error("Camera access error:", err);
-        }
-      };
-      getCameras();
-    }
-  }, [active, forceLocalWebcam, hasError]);
+    let stream = null;
+    let isMounted = true;
 
-  // Activate the selected local webcam
-  useEffect(() => {
-    if (active && (forceLocalWebcam || hasError) && selectedDeviceId) {
-      navigator.mediaDevices.getUserMedia({ 
-        video: { deviceId: { exact: selectedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-      })
-      .then(stream => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      })
-      .catch(err => console.error("Webcam init error:", err));
+    if (active && (forceLocalWebcam || hasError)) {
+      const constraints = selectedDeviceId 
+        ? { video: { deviceId: { exact: selectedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } }
+        : { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } };
+
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia(constraints)
+          .then(s => {
+            if (!isMounted) {
+              s.getTracks().forEach(t => t.stop());
+              return;
+            }
+            stream = s;
+            if (videoRef.current) {
+              videoRef.current.srcObject = s;
+              videoRef.current.play().catch(() => {});
+            }
+            // Enumerate devices once permission is granted
+            navigator.mediaDevices.enumerateDevices().then(devs => {
+              if (!isMounted) return;
+              const videoDevs = devs.filter(d => d.kind === 'videoinput');
+              setDevices(videoDevs);
+            }).catch(() => {});
+          })
+          .catch(err => {
+            console.error("Webcam init error:", err);
+            setHasError(true);
+          });
+      }
     }
-    
+
     return () => {
+      isMounted = false;
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
       if (videoRef.current && videoRef.current.srcObject) {
-        const tracks = videoRef.current.srcObject.getTracks();
-        tracks.forEach(track => track.stop());
+        videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
       }
     };
   }, [active, forceLocalWebcam, hasError, selectedDeviceId]);

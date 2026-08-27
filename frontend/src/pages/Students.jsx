@@ -224,7 +224,7 @@ export default function Students() {
     }
   };
 
-  const FormFields = () => (
+  const renderFormFields = () => (
     <div className="space-y-4">
       <div>
         <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
@@ -414,7 +414,7 @@ export default function Students() {
       {/* Students Cards Grid */}
       <div className="w-full">
         {loading ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center py-20 text-gray-400">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center py-20 text-slate-400">
             <Loader2 className="w-8 h-8 animate-spin text-primary-600 mb-2" />
             <p className="text-sm">Loading students from database...</p>
           </div>
@@ -429,24 +429,28 @@ export default function Students() {
               <motion.div 
                 key={s.student_id} 
                 variants={row} 
-                className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-all flex flex-col"
+                className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all flex flex-col"
               >
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex items-center gap-3">
                     {s.avatar_url ? (
-                      <img 
+                      <motion.img 
+                        initial={{ scale: 0.5, rotate: -15, opacity: 0 }}
+                        animate={{ scale: 1, rotate: 0, opacity: 1 }}
+                        whileHover={{ scale: 1.1, rotate: 5 }}
+                        transition={{ type: "spring", stiffness: 300, damping: 15 }}
                         src={s.avatar_url} 
                         alt={s.name} 
-                        className="w-12 h-12 rounded-2xl object-cover border border-primary-200 shadow-sm" 
+                        className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-400 dark:border-emerald-500 shadow-[0_0_15px_rgba(52,211,153,0.4)] dark:shadow-[0_0_15px_rgba(16,185,129,0.5)] relative z-10 shrink-0" 
                       />
                     ) : (
-                      <div className="w-12 h-12 bg-primary-100 text-primary-700 rounded-2xl flex items-center justify-center font-bold text-lg">
+                      <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center font-bold text-xl border border-blue-200 dark:border-blue-800/40 shrink-0">
                         {(s.name || 'S').split(' ').map(n => n[0]).join('').slice(0, 2)}
                       </div>
                     )}
                     <div>
-                      <p className="font-semibold text-gray-900 leading-tight truncate max-w-[140px]">{s.name}</p>
-                      <p className="text-[11px] font-mono text-gray-400">{s.student_id}</p>
+                      <p className="font-semibold text-slate-900 dark:text-white leading-tight truncate max-w-[140px]">{s.name}</p>
+                      <p className="text-[11px] font-mono text-slate-400">{s.student_id}</p>
                     </div>
                   </div>
                   
@@ -455,14 +459,14 @@ export default function Students() {
                       onClick={() => handleToggleStatus(s)}
                       disabled={statusUpdatingId === s.student_id}
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider transition-all hover:scale-105 ${
-                        s.status === 'inactive' ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' : 'bg-primary-50 text-primary-600 hover:bg-primary-100 dark:bg-primary-950/50'
+                        s.status === 'inactive' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200' : 'bg-primary-50 dark:bg-primary-950/50 text-primary-600 dark:text-primary-400 hover:bg-primary-100'
                       }`}
                       title="Click to toggle Active / Inactive status"
                     >
                       {statusUpdatingId === s.student_id ? (
                         <Loader2 className="w-2.5 h-2.5 animate-spin" />
                       ) : (
-                        <span className={`w-1.5 h-1.5 rounded-full ${s.status === 'inactive' ? 'bg-gray-400' : 'bg-primary-500'}`} />
+                        <span className={`w-1.5 h-1.5 rounded-full ${s.status === 'inactive' ? 'bg-slate-400' : 'bg-primary-500'}`} />
                       )}
                       {statusUpdatingId === s.student_id ? 'Updating...' : s.status || 'Active'}
                     </button>
@@ -470,13 +474,13 @@ export default function Students() {
                 </div>
 
                 <div className="space-y-3 mt-auto">
-                  <div className="flex items-center justify-between border-t border-gray-50 pt-3">
+                  <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3">
                     <div className="flex flex-col">
-                      <span className="text-[10px] uppercase font-semibold text-gray-400 tracking-wider">Class</span>
-                      <span className="text-sm font-medium text-gray-700">{s.class_name || 'CS-401'}</span>
+                      <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Class</span>
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{s.class_name || 'CS-401'}</span>
                     </div>
                     <div className="flex flex-col items-end">
-                      <span className="text-[10px] uppercase font-semibold text-gray-400 tracking-wider">Attendance</span>
+                      <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Attendance</span>
                       <span className={`text-sm font-bold ${s.attendance_pct >= 80 ? 'text-success' : s.attendance_pct >= 60 ? 'text-warning' : 'text-danger'}`}>
                         {s.attendance_pct || 0}%
                       </span>
@@ -486,26 +490,30 @@ export default function Students() {
                   <div className="flex items-center gap-2 pt-2">
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] font-medium text-gray-500">Face Dataset</span>
-                        <span className="text-[10px] font-medium text-gray-500">{s.face_count || 0}/100</span>
+                        <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Face Dataset</span>
+                        <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">{s.face_count || 0}/20</span>
                       </div>
-                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden w-full">
+                      <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden w-full">
                         <motion.div 
                           initial={{ width: 0 }} 
-                          animate={{ width: `${Math.min((s.face_count || 0), 100)}%` }}
+                          animate={{ width: `${Math.min(((s.face_count || 0) / 20) * 100, 100)}%` }}
                           transition={{ delay: 0.2, duration: 0.6 }}
-                          className={`h-full rounded-full ${s.face_count >= 100 ? 'bg-success' : s.face_count >= 50 ? 'bg-warning' : 'bg-danger'}`} 
+                          className={`h-full rounded-full ${s.face_count >= 20 ? 'bg-success' : s.face_count >= 10 ? 'bg-warning' : 'bg-danger'}`} 
                         />
                       </div>
                     </div>
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center justify-end gap-1.5 pt-3 border-t border-gray-50">
+                  <div className="flex items-center justify-end gap-1.5 pt-3 border-t border-slate-100 dark:border-slate-800">
                     <button 
                       onClick={() => setShowCapture(s)} 
-                      className="flex-1 flex items-center justify-center gap-1 p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors text-xs font-semibold" 
-                      title="Capture Face Dataset"
+                      className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-xl transition-colors text-xs font-semibold ${
+                        s.is_trained || (s.encodings_count > 0)
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100'
+                          : 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50'
+                      }`}
+                      title={s.is_trained ? "Face AI Model Trained" : "Capture Face Dataset"}
                     >
                       <Camera className="w-3.5 h-3.5" /> Faces
                     </button>
@@ -513,8 +521,8 @@ export default function Students() {
                       onClick={() => setShowBiometric(s)} 
                       className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-xl transition-colors text-xs font-semibold ${
                         s.biometric_enrolled 
-                          ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' 
-                          : 'bg-purple-50 text-purple-600 hover:bg-purple-100'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100' 
+                          : 'bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 hover:bg-purple-100'
                       }`}
                       title="Hardware Touch ID / Fingerprint Biometric"
                     >
@@ -522,7 +530,7 @@ export default function Students() {
                     </button>
                     <button 
                       onClick={() => handleEditClick(s)} 
-                      className="p-2 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-xl transition-colors" 
+                      className="p-2 text-slate-500 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-slate-800 rounded-xl transition-colors" 
                       title="Edit Student"
                     >
                       <Edit className="w-4 h-4" />
@@ -530,7 +538,7 @@ export default function Students() {
                     {isPrincipal && (
                       <button 
                         onClick={() => setShowDelete(s)} 
-                        className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors" 
+                        className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-slate-800 rounded-xl transition-colors" 
                         title="Delete Student"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -544,9 +552,9 @@ export default function Students() {
         )}
 
         {!loading && filtered.length === 0 && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 text-center py-16 text-gray-400">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 text-center py-16 text-slate-400">
             <GraduationCap className="w-12 h-12 mx-auto mb-3 opacity-30 text-primary-600" />
-            <p className="font-semibold text-gray-700">No students found</p>
+            <p className="font-semibold text-slate-700 dark:text-slate-200">No students found</p>
             <p className="text-sm mt-1">Try adjusting your filters or add a new student</p>
           </div>
         )}
@@ -554,7 +562,7 @@ export default function Students() {
 
       {/* Add Modal */}
       <Modal isOpen={showAdd} onClose={() => setShowAdd(false)} title="Add New Student" size="md">
-        <FormFields />
+        {renderFormFields()}
         <div className="flex justify-end gap-3 mt-6">
           <button onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors">Cancel</button>
           <motion.button whileTap={{ scale: 0.97 }} onClick={handleSaveNew} className="px-6 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
@@ -565,7 +573,7 @@ export default function Students() {
 
       {/* Edit Modal */}
       <Modal isOpen={showEdit} onClose={() => setShowEdit(false)} title="Edit Student" size="md">
-        <FormFields />
+        {renderFormFields()}
         <div className="flex justify-end gap-3 mt-6">
           <button onClick={() => setShowEdit(false)} className="px-4 py-2 text-sm text-gray-600">Cancel</button>
           <motion.button whileTap={{ scale: 0.97 }} onClick={handleSaveEdit} className="px-6 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
@@ -590,7 +598,13 @@ export default function Students() {
                     body: JSON.stringify({ avatar_url: bestImageUrl, face_count: count })
                   });
                 }
-                setStudents(prev => prev.map(st => st.student_id === showCapture.student_id ? { ...st, avatar_url: bestImageUrl || st.avatar_url, face_count: count } : st));
+                setStudents(prev => prev.map(st => st.student_id === showCapture.student_id ? { 
+                  ...st, 
+                  avatar_url: bestImageUrl || st.avatar_url, 
+                  face_count: count,
+                  encodings_count: count,
+                  is_trained: true
+                } : st));
                 toast.success('Student face model and card photo updated!');
               } catch (err) {
                 console.error(err);

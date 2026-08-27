@@ -26,25 +26,43 @@ class Camera:
         self.camera_index = camera_index
         self.cap = None
         self.frame_lock = threading.Lock()
+        self.active_users = 0
         self._initialized = True
 
     def start(self):
-        """Open camera if not already open"""
+        """Open camera if not already open and increment active users"""
         with self.frame_lock:
+            self.active_users += 1
             if self.cap is None or not self.cap.isOpened():
-                self.cap = cv2.VideoCapture(self.camera_index)
+                import platform
+                if platform.system() == 'Darwin':
+                    self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_AVFOUNDATION)
+                else:
+                    self.cap = cv2.VideoCapture(self.camera_index)
+                    
+                if not self.cap.isOpened():
+                    self.cap = cv2.VideoCapture(self.camera_index)
+                    
                 if not self.cap.isOpened():
                     logger.error(f"Failed to open camera index {self.camera_index}")
                 else:
+                    try:
+                        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except Exception:
+                        pass
                     logger.info(f"Camera {self.camera_index} started successfully")
 
-    def stop(self):
-        """Release camera"""
+    def stop(self, force=False):
+        """Decrement active users and release camera only if no active users"""
         with self.frame_lock:
-            if self.cap is not None:
-                self.cap.release()
-                self.cap = None
-                logger.info(f"Camera {self.camera_index} stopped")
+            if self.active_users > 0:
+                self.active_users -= 1
+            if force or self.active_users <= 0:
+                self.active_users = 0
+                if self.cap is not None:
+                    self.cap.release()
+                    self.cap = None
+                    logger.info(f"Camera {self.camera_index} stopped")
 
     def get_frame(self):
         """Read single frame from camera. Returns (success, frame)"""
@@ -66,6 +84,7 @@ class Camera:
             while self.is_opened():
                 ret, frame = self.get_frame()
                 if not ret or frame is None:
+                    time.sleep(0.03)
                     continue
                     
                 ret, jpeg = cv2.imencode('.jpg', frame)
@@ -73,6 +92,7 @@ class Camera:
                     jpeg_bytes = jpeg.tobytes()
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + jpeg_bytes + b'\r\n')
+                time.sleep(0.03)
         finally:
             self.stop()
 
@@ -83,25 +103,29 @@ class Camera:
             while self.is_opened():
                 ret, frame = self.get_frame()
                 if not ret or frame is None:
+                    time.sleep(0.03)
                     continue
                     
                 if recognizer_callback:
-                    # callback returns list of dicts: {'bbox': (t,r,b,l), 'name': str, 'recognized': bool}
-                    results = recognizer_callback(frame)
-                    if results:
-                        for res in results:
-                            top, right, bottom, left = res['bbox']
-                            name = res.get('name', 'Unknown')
-                            recognized = res.get('recognized', False)
-                            
-                            color = (0, 255, 0) if recognized else (0, 0, 255)
-                            cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-                            cv2.putText(frame, name, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2)
+                    try:
+                        results = recognizer_callback(frame)
+                        if results:
+                            for res in results:
+                                top, right, bottom, left = res['bbox']
+                                name = res.get('name', 'Unknown')
+                                recognized = res.get('recognized', False)
+                                
+                                color = (0, 255, 0) if recognized else (0, 0, 255)
+                                cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
+                                cv2.putText(frame, name, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2)
+                    except Exception as e:
+                        logger.error(f"Error in recognizer_callback: {e}")
 
                 ret, jpeg = cv2.imencode('.jpg', frame)
                 if ret:
                     jpeg_bytes = jpeg.tobytes()
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + jpeg_bytes + b'\r\n')
+                time.sleep(0.03)
         finally:
             self.stop()

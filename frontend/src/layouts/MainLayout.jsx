@@ -26,8 +26,8 @@ import ConfirmDialog from '../components/ConfirmDialog';
 
 const NAV_ITEMS_DEF = [
   { path: '/', label: 'Overview', icon: LayoutDashboard },
-  { path: '/live-attendance', label: 'Live AI', icon: Video, liveHighlight: true, hideForStudent: true },
-  { path: '/kiosk', label: 'Check-In', icon: ScanFace, kioskHighlight: true, hideForStudent: true },
+  { path: '/live-attendance', label: 'Live AI (Students)', icon: Video, liveHighlight: true, hideForStudent: true },
+  { path: '/kiosk', label: 'Faculty Check-In', icon: ScanFace, kioskHighlight: true, role: 'principal' },
   { path: '/classes', label: 'Classes', icon: BookOpen, hideForStudent: true },
   { path: '/students', label: 'Students', icon: GraduationCap, hideForStudent: true },
   { path: '/teachers', label: 'Faculty', icon: Users, role: 'principal' },
@@ -94,15 +94,17 @@ export default function MainLayout() {
           {/* Quick Launch Terminal + Indicators */}
           <div className="flex items-center gap-2 sm:gap-3">
             {/* Quick Kiosk Launch Button */}
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => navigate('/kiosk')}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-sm shadow-emerald-500/20 transition-all"
-            >
-              <ScanFace className="w-3.5 h-3.5" />
-              <span>Face & Fingerprint Terminal</span>
-            </motion.button>
+            {user?.role === 'principal' && (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => navigate('/kiosk')}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-sm shadow-emerald-500/20 transition-all"
+              >
+                <ScanFace className="w-3.5 h-3.5" />
+                <span>Face & Fingerprint Terminal</span>
+              </motion.button>
+            )}
 
             {/* Live Clock */}
             <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/60 text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">
@@ -166,14 +168,16 @@ export default function MainLayout() {
                         onClick={() => { navigate('/profile'); setShowUserMenu(false); }}
                         className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                       >
-                        <User className="w-3.5 h-3.5 text-primary-500" /> My Profile & Touch ID
+                        <User className="w-3.5 h-3.5 text-primary-500" /> My Profile {user?.role !== 'student' && '& Touch ID'}
                       </button>
-                      <button
-                        onClick={() => { navigate('/kiosk'); setShowUserMenu(false); }}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
-                      >
-                        <ScanFace className="w-3.5 h-3.5" /> Face & Fingerprint Terminal
-                      </button>
+                      {user?.role === 'principal' && (
+                        <button
+                          onClick={() => { navigate('/kiosk'); setShowUserMenu(false); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
+                        >
+                          <ScanFace className="w-3.5 h-3.5" /> Face & Fingerprint Terminal
+                        </button>
+                      )}
                       <button
                         onClick={() => { setShowUserMenu(false); setShowLogoutConfirm(true); }}
                         className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"

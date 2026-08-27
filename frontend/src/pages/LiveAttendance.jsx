@@ -6,6 +6,7 @@ import {
   GraduationCap, UserCheck, ChevronRight
 } from 'lucide-react';
 import CameraFeed from '../components/CameraFeed';
+import AIFaceGrid from '../components/AIFaceGrid';
 import StatusBadge from '../components/StatusBadge';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Modal from '../components/Modal';
@@ -28,14 +29,14 @@ export default function LiveAttendance() {
   const [todayList, setTodayList] = useState([]);
   const [personTypeTab, setPersonTypeTab] = useState('student'); // 'student' or 'teacher'
 
-  const [showFinalize, setShowFinalize] = useState(false);
   const [showBiometric, setShowBiometric] = useState(false);
   const [biometricStatus, setBiometricStatus] = useState('idle');
   const [sessionTime, setSessionTime] = useState(0);
 
+  const cameraRef = useRef(null);
   const lastUnknownToastTime = useRef(0);
 
-  // Load real today attendance
+  // Load real today attendance & auto-start session immediately on page load!
   const loadTodayAttendance = useCallback(async () => {
     try {
       const res = await getTodayAttendance();
@@ -48,7 +49,10 @@ export default function LiveAttendance() {
 
   useEffect(() => {
     loadTodayAttendance();
-  }, [loadTodayAttendance]);
+    setSessionActive(true);
+    const isTeacher = user?.role === 'teacher';
+    startSession({ allowedClass: isTeacher ? (user?.assignedClass || '') : null }).catch(() => {});
+  }, [loadTodayAttendance, user]);
 
   // Session duration timer
   useEffect(() => {
@@ -57,66 +61,83 @@ export default function LiveAttendance() {
     return () => clearInterval(t);
   }, [sessionActive]);
 
-  // Poll real AI recognition results when session is active
+  // Continuous Real-Time Automated AI Face Recognition
   useEffect(() => {
     if (!sessionActive) return;
     const interval = setInterval(async () => {
       try {
-        const res = await getLatestResults();
-        const raw = res?.data || res || [];
-        if (Array.isArray(raw)) {
-          setResults(raw);
-          if (raw.length > 0) {
-            loadTodayAttendance();
-            
-            // Check for unknown faces and log internally if needed, 
-            // but we will render the visual error directly on the video feed overlay now.
-            const hasUnknown = raw.some(face => !face.recognized || face.name === 'Unknown');
-            if (hasUnknown) {
-              lastUnknownToastTime.current = Date.now();
-            }
+        let frameBlob = null;
+        if (cameraRef.current) {
+          frameBlob = await cameraRef.current.captureFrame();
+        }
+
+        let raw = [];
+        if (frameBlob) {
+          const reader = new FileReader();
+          const base64Promise = new Promise(resolve => {
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(frameBlob);
+          });
+          const base64 = await base64Promise;
+
+          const isTeacher = user?.role === 'teacher';
+          const scanRes = await fetch('/api/recognition/scan-frame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              image: base64,
+              allowedClass: isTeacher ? (user?.assignedClass || '') : null,
+              targetRole: 'student'
+            })
+          }).then(r => r.json()).catch(() => null);
+
+          if (scanRes?.data?.face_detected && scanRes?.data?.results?.length > 0) {
+            raw = scanRes.data.results;
           }
+        }
+
+        if (Array.isArray(raw) && raw.length > 0) {
+          setResults(raw);
+          loadTodayAttendance();
+          const hasUnknown = raw.some(face => !face.recognized || face.name === 'Unknown');
+          if (hasUnknown) {
+            lastUnknownToastTime.current = Date.now();
+          }
+        } else {
+          // Instant Face Removal: Clear immediately with 0ms delay when face leaves camera
+          setResults([]);
         }
       } catch (err) {
         // silent fail on polling
       }
-    }, 2500);
+    }, 450);
 
     return () => clearInterval(interval);
-  }, [sessionActive, loadTodayAttendance]);
+  }, [sessionActive, loadTodayAttendance, user]);
 
   const handleStart = async () => {
+    // Instant UI feedback with 0ms delay
+    setSessionActive(true);
+    setSessionTime(0);
+    toast.success('Live AI Recognition Camera Active!');
     try {
       const isTeacher = user?.role === 'teacher';
       await startSession({ allowedClass: isTeacher ? (user?.assignedClass || '') : null });
-      setSessionActive(true);
-      setSessionTime(0);
-      toast.success('Live AI Recognition Camera Active!');
     } catch (err) {
+      setSessionActive(false);
       toast.error('Failed to start recognition engine');
     }
   };
 
   const handleStop = async () => {
+    // Instant UI feedback with 0ms delay
+    setSessionActive(false);
+    setResults([]);
+    toast('Live Session Stopped', { icon: '⏹️' });
     try {
       await stopSession();
-      setSessionActive(false);
-      setResults([]);
-      toast('Live Session Stopped', { icon: '⏹️' });
     } catch (err) {
-      toast.error('Failed to stop session');
-    }
-  };
-
-  const handleFinalize = async () => {
-    setShowFinalize(false);
-    try {
-      const res = await finalizeSession();
-      const data = res?.data || res;
-      toast.success(`Session finalized! ${data?.marked_absent?.length || 0} marked absent.`);
-      loadTodayAttendance();
-    } catch (err) {
-      toast.error('Failed to finalize session');
+      console.error('Stop session error:', err);
     }
   };
 
@@ -166,7 +187,7 @@ export default function LiveAttendance() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-display font-bold text-slate-900 dark:text-white tracking-tight">
-              Live AI Attendance Monitor
+              Classroom Live Student Attendance
             </h1>
             {sessionActive ? (
               <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/40 animate-pulse">
@@ -179,7 +200,7 @@ export default function LiveAttendance() {
             )}
           </div>
           <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
-            Real-time multi-person facial detection and biometric attendance recording
+            Real-time automated facial detection and presence recording for Students
           </p>
         </div>
 
@@ -204,15 +225,6 @@ export default function LiveAttendance() {
               <Square className="w-4 h-4 fill-white" /> Stop Vision
             </motion.button>
           )}
-
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowFinalize(true)}
-            className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-2xl font-semibold text-xs sm:text-sm shadow-sm transition-all"
-          >
-            <CheckCircle2 className="w-4 h-4" /> Finalize Day
-          </motion.button>
 
           <motion.button
             whileHover={{ scale: 1.02 }}
@@ -243,44 +255,55 @@ export default function LiveAttendance() {
               </div>
             </div>
             <div className="rounded-2xl overflow-hidden bg-slate-950 aspect-video relative flex items-center justify-center border border-slate-800">
-              <CameraFeed streamUrl="/video_feed" active={sessionActive} className="w-full h-full object-cover" />
+              <CameraFeed ref={cameraRef} active={true} forceLocalWebcam={true} className="w-full h-full object-cover" />
               
+              {/* Teacher In Live Feed: Prominent Red Alert Screen */}
               <AnimatePresence>
-                {results.some(f => !f.recognized || f.name === 'Unknown') && (
+                {results.some(r => r.role === 'teacher' || r.is_teacher_in_room || String(r.student_id).startsWith('TCH') || String(r.student_id).startsWith('T-') || String(r.student_id).startsWith('PRN')) && (
                   <motion.div 
-                    initial={{ opacity: 0, scale: 0.9 }}
+                    initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none bg-red-950/40 backdrop-blur-[2px]"
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-red-950/90 backdrop-blur-md border-4 border-red-600 rounded-2xl text-center shadow-2xl"
                   >
-                    <div className="bg-red-600 text-white px-6 py-4 rounded-2xl shadow-2xl shadow-red-900/50 border-2 border-red-400 flex items-center gap-4">
-                      <AlertTriangle className="w-10 h-10 animate-pulse" />
-                      <div>
-                        <p className="font-black text-xl tracking-wide uppercase">ERROR: NOT FOUND</p>
-                        <p className="text-red-100 font-medium mt-0.5">Face is not registered in the system</p>
-                      </div>
+                    <div className="w-16 h-16 rounded-full bg-red-600 text-white flex items-center justify-center mb-3 shadow-lg shadow-red-900/60 animate-bounce">
+                      <AlertTriangle className="w-9 h-9" />
                     </div>
-                  </motion.div>
-                )}
-                
-                {/* Already Checked In Overlay */}
-                {results.some(f => f.recognized && f.student_id && todayList.some(t => t.student_id === f.student_id)) && !results.some(f => !f.recognized) && (
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.9, y: -20 }}
-                    className="absolute bottom-6 inset-x-0 z-10 flex items-center justify-center pointer-events-none"
-                  >
-                    <div className="bg-emerald-500/90 backdrop-blur-md text-white px-6 py-3 rounded-2xl shadow-2xl shadow-emerald-900/40 border border-emerald-400 flex items-center gap-3">
-                      <CheckCircle2 className="w-7 h-7" />
-                      <div>
-                        <p className="font-black text-sm tracking-wide uppercase">ATTENDANCE ALREADY RECORDED</p>
-                        <p className="text-emerald-100 font-medium text-xs">You are already checked in for today.</p>
-                      </div>
+                    <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-wider">
+                      ACCESS RESTRICTED: THIS IS ONLY FOR STUDENTS
+                    </h2>
+                    <p className="text-red-200 text-xs sm:text-sm max-w-md mt-2 font-medium">
+                      Faculty member detected in classroom stream. Teacher attendance is NOT recorded here. Please record your attendance at the <strong>Faculty Check-In Kiosk</strong>.
+                    </p>
+                    <div className="mt-4 px-4 py-1.5 rounded-xl bg-red-900 border border-red-500 text-red-100 text-xs font-mono font-bold">
+                      STUDENT CLASSROOM VISION ONLY
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* Futuristic Holographic AI Face Mesh Grid */}
+              <div className="absolute inset-0 pointer-events-none p-4">
+                {results && results.length > 0 && !results.some(r => r.role === 'teacher' || r.is_teacher_in_room) ? (
+                  <AIFaceGrid 
+                    detectedFace={{
+                      name: results[0].name || (results[0].recognized ? 'Verified Student' : 'Unknown Face'),
+                      id: results[0].student_id,
+                      role: 'student',
+                      roleLabel: 'Student',
+                      confidence: Math.round((results[0].confidence || 0.95) * 100),
+                      error: !results[0].recognized || results[0].name === 'Unknown',
+                      alreadyCheckedIn: todayList.some(t => t.student_id === results[0].student_id),
+                      box_top_pct: results[0].box_top_pct,
+                      box_bottom_pct: results[0].box_bottom_pct,
+                      box_left_pct: results[0].box_left_pct,
+                      box_right_pct: results[0].box_right_pct,
+                      box_width_pct: results[0].box_width_pct,
+                      box_height_pct: results[0].box_height_pct
+                    }} 
+                  />
+                ) : null}
+              </div>
             </div>
           </div>
         </div>
@@ -299,46 +322,84 @@ export default function LiveAttendance() {
             <div className="space-y-3 flex-1 overflow-y-auto max-h-[340px] custom-scrollbar pr-1">
               <AnimatePresence>
                 {results.length > 0 ? (
-                  results.map((r, i) => (
-                    <motion.div
-                      key={r.student_id || i}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
-                      className={`p-3.5 rounded-2xl border flex items-center justify-between ${
-                        r.recognized
-                          ? 'bg-emerald-50/70 border-emerald-200/80 dark:bg-emerald-950/30 dark:border-emerald-800/40'
-                          : 'bg-rose-50/70 border-rose-200/80 dark:bg-rose-950/30 dark:border-rose-800/40'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold text-white shadow-sm ${
-                          r.recognized ? 'bg-emerald-500' : 'bg-rose-500'
-                        }`}>
-                          {r.recognized ? '✓' : '?'}
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                            {r.name || 'Unknown Face'}
-                          </p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="text-[10px] font-mono text-slate-400">{r.student_id || 'Not Enrolled'}</span>
-                            {r.recognized && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.2 bg-primary-100 text-primary-700 dark:bg-primary-950 dark:text-primary-400 rounded">
-                                {String(r.student_id || '').startsWith('TCH') ? 'Faculty' : 'Student'}
-                              </span>
-                            )}
+                  results.map((r, i) => {
+                    const isFaculty = r.role === 'teacher' || r.is_teacher_in_room || String(r.student_id || '').startsWith('TCH') || String(r.student_id || '').startsWith('PRN');
+                    const isSuccess = r.recognized && !isFaculty && !r.error;
+                    const isError = r.error;
+
+                    return (
+                      <motion.div
+                        key={r.student_id || i}
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        className={`p-3.5 rounded-2xl border flex items-center justify-between ${
+                          isFaculty || isError
+                            ? 'bg-rose-50/90 border-rose-300 dark:bg-rose-950/50 dark:border-rose-800'
+                            : isSuccess
+                              ? 'bg-emerald-50/70 border-emerald-200/80 dark:bg-emerald-950/30 dark:border-emerald-800/40'
+                              : 'bg-amber-50/70 border-amber-200/80 dark:bg-amber-950/30 dark:border-amber-800/40'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold text-white shadow-sm ${
+                            (isFaculty || isError) ? 'bg-rose-600' : isSuccess ? 'bg-emerald-500' : 'bg-amber-500'
+                          }`}>
+                            {(isFaculty || isError) ? '⛔' : isSuccess ? '✓' : '?'}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                              {r.name || (isFaculty ? 'Faculty Member' : 'Unknown Face')}
+                            </p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[10px] font-mono text-slate-400">{r.student_id || (isFaculty ? 'Faculty' : 'Not Enrolled')}</span>
+                              {isFaculty ? (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300 rounded">
+                                  Faculty (Restricted)
+                                </span>
+                              ) : r.error ? (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300 rounded">
+                                  {r.roleLabel || 'Restricted'}
+                                </span>
+                              ) : isSuccess ? (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 bg-primary-100 text-primary-700 dark:bg-primary-950 dark:text-primary-400 rounded">
+                                  Student
+                                </span>
+                              ) : (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 rounded">
+                                  Unverified
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="text-right">
-                        <span className={`text-xs font-bold font-mono ${r.recognized ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                          {Math.round((r.confidence || 0.8) * 100)}%
-                        </span>
-                        <p className="text-[10px] text-slate-400">{r.recognized ? 'Marked' : 'Unverified'}</p>
-                      </div>
-                    </motion.div>
-                  ))
+                        <div className="text-right">
+                          {isFaculty || r.error ? (
+                            <>
+                              <span className="text-[11px] font-extrabold text-rose-600 dark:text-rose-400 font-mono">
+                                BLOCKED
+                              </span>
+                              <p className="text-[9px] font-bold text-rose-500">Not Recorded</p>
+                            </>
+                          ) : isSuccess ? (
+                            <>
+                              <span className="text-xs font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                                {Math.round((r.confidence || 0.8) * 100)}%
+                              </span>
+                              <p className="text-[10px] text-slate-400 font-medium">Marked</p>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-xs font-bold font-mono text-amber-600 dark:text-amber-400">
+                                {Math.round((r.confidence || 0.0) * 100)}%
+                              </span>
+                              <p className="text-[10px] text-slate-400">Unverified</p>
+                            </>
+                          )}
+                        </div>
+                      </motion.div>
+                    );
+                  })
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full text-slate-400 text-center py-12 text-xs">
                     <Zap className="w-8 h-8 mx-auto mb-2 opacity-30 text-amber-500" />
@@ -472,15 +533,6 @@ export default function LiveAttendance() {
           <p className="text-xs text-slate-400 mt-1">Direct WebAuthn hardware verification</p>
         </div>
       </Modal>
-
-      <ConfirmDialog
-        isOpen={showFinalize}
-        onClose={() => setShowFinalize(false)}
-        onConfirm={handleFinalize}
-        title="Finalize Attendance Session?"
-        message="This will record all present attendees and automatically mark absent students for today."
-        confirmLabel="Finalize & Mark Absentees"
-      />
     </motion.div>
   );
 }

@@ -8,6 +8,7 @@ from app.models import student, attendance
 from app.database.connection import get_db
 from app.config import Config
 import logging
+import threading
 import cv2
 import numpy as np
 import base64
@@ -26,33 +27,37 @@ class RecognitionService:
         self.attendance_processor = None
         self.active_session_id = None
         self._initialized = False
+        self._init_lock = threading.Lock()
 
     def init_pipeline(self):
-        try:
-            self.camera = Camera()
-            self.detector = FaceDetector()
-            self.preprocessor = FacePreprocessor()
-            self.encoder = FaceEncoder()
-            self.recognizer = FaceRecognizer()
-            
-            # Sync any existing users who have images on disk but missing encodings
-            self.sync_untrained_users()
+        with self._init_lock:
+            if self._initialized:
+                return
+            try:
+                self.camera = Camera()
+                self.detector = FaceDetector()
+                self.preprocessor = FacePreprocessor()
+                self.encoder = FaceEncoder()
+                self.recognizer = FaceRecognizer()
+                
+                # Load all encodings (both students and teachers)
+                encodings = student.get_all_encodings()
+                self.recognizer.load_encodings(encodings)
+                
+                self.attendance_processor = AttendanceProcessor(
+                    face_detector=self.detector,
+                    preprocessor=self.preprocessor,
+                    encoder=self.encoder,
+                    recognizer=self.recognizer,
+                    attendance_callback=self._attendance_callback
+                )
+                self._initialized = True
+                logger.info("Recognition pipeline successfully initialized.")
 
-            # Load all encodings (both students and teachers)
-            encodings = student.get_all_encodings()
-            self.recognizer.load_encodings(encodings)
-            
-            self.attendance_processor = AttendanceProcessor(
-                face_detector=self.detector,
-                preprocessor=self.preprocessor,
-                encoder=self.encoder,
-                recognizer=self.recognizer,
-                attendance_callback=self._attendance_callback
-            )
-            self._initialized = True
-            logger.info("Recognition pipeline successfully initialized with all student & faculty models.")
-        except Exception as e:
-            logger.warning(f"AI Pipeline initialization deferred: {e}")
+                # Run disk sync in background thread so it never blocks UI or API responses
+                threading.Thread(target=self.sync_untrained_users, daemon=True).start()
+            except Exception as e:
+                logger.warning(f"AI Pipeline initialization deferred: {e}")
 
     def sync_untrained_users(self):
         """Scans dataset directories for any previous users and generates 128-d embeddings if missing."""
@@ -118,8 +123,11 @@ class RecognitionService:
         except Exception as e:
             logger.error(f"Error recording unified attendance callback: {e}")
 
-    def detect_and_recognize_frame(self, image_data=None, allowed_class=None):
-        """Processes a single frame and returns bounding boxes and recognition results"""
+    def detect_and_recognize_frame(self, image_data=None, allowed_class=None, target_role=None):
+        """
+        Accepts base64 image or captures from camera, detects all faces, recognizes them,
+        applies role filtering (faculty only vs student only), and executes auto-attendance.
+        """
         if not self._initialized:
             self.init_pipeline()
             
@@ -128,8 +136,8 @@ class RecognitionService:
             try:
                 if ',' in image_data:
                     image_data = image_data.split(',')[1]
-                img_bytes = base64.b64decode(image_data)
-                np_arr = np.frombuffer(img_bytes, np.uint8)
+                image_bytes = base64.b64decode(image_data)
+                np_arr = np.frombuffer(image_bytes, np.uint8)
                 frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             except Exception as e:
                 logger.error(f"Failed to decode base64 in detect_and_recognize_frame: {e}")
@@ -152,10 +160,105 @@ class RecognitionService:
             encodings = self.encoder.encode(rgb_frame, face_locations=face_locations)
             
             matches = []
+            h_frame, w_frame = frame.shape[:2]
             for i, enc in enumerate(encodings):
                 rec = self.recognizer.recognize(enc, allowed_class)
                 s_id = rec.get('student_id')
-                is_teacher = str(s_id).startswith('TCH') or str(s_id).startswith('T-')
+                is_teacher = str(s_id).startswith('TCH') or str(s_id).startswith('T-') or str(s_id).startswith('PRN') or 'teacher' in str(s_id).lower() or 'principal' in str(s_id).lower()
+                top, right, bottom, left = face_locations[i]
+
+                box_top_pct = round((top / float(h_frame)) * 100, 2)
+                box_bottom_pct = round((bottom / float(h_frame)) * 100, 2)
+                box_left_pct = round((left / float(w_frame)) * 100, 2)
+                box_right_pct = round((right / float(w_frame)) * 100, 2)
+                box_width_pct = round(((right - left) / float(w_frame)) * 100, 2)
+                box_height_pct = round(((bottom - top) / float(h_frame)) * 100, 2)
+
+                # ROLE RESTRICTION: Faculty-Only Check-In/Out Kiosk
+                if target_role in ['faculty', 'teacher', 'staff']:
+                    if rec.get('recognized') and not is_teacher:
+                        # Student detected at Faculty Kiosk
+                        matches.append({
+                            'student_id': None,
+                            'name': 'RESTRICTED (STUDENT)',
+                            'class_name': '',
+                            'confidence': float(rec.get('confidence', 0.0)),
+                            'recognized': False,
+                            'role': 'student',
+                            'roleLabel': 'Kiosk is for Faculty & Staff Only',
+                            'error': True,
+                            'error_message': 'Access Restricted: Kiosk is for Teachers & Principal only. Students must be marked via Classroom Live Attendance.',
+                            'bbox': [int(top), int(right), int(bottom), int(left)],
+                            'box_top_pct': box_top_pct,
+                            'box_bottom_pct': box_bottom_pct,
+                            'box_left_pct': box_left_pct,
+                            'box_right_pct': box_right_pct,
+                            'box_width_pct': box_width_pct,
+                            'box_height_pct': box_height_pct
+                        })
+                        continue
+
+                # ROLE RESTRICTION: Student-Only Classroom Live Attendance
+                if target_role == 'student':
+                    if rec.get('recognized') and is_teacher:
+                        # Faculty member in classroom - NOT marked, strictly restricted
+                        matches.append({
+                            'student_id': s_id,
+                            'name': rec.get('name', 'Faculty Member'),
+                            'class_name': '',
+                            'confidence': float(rec.get('confidence', 0.0)),
+                            'recognized': False, # Explicitly false so it never shows as marked
+                            'is_restricted': True,
+                            'role': 'teacher',
+                            'roleLabel': 'Faculty Member (Restricted)',
+                            'is_teacher_in_room': True,
+                            'status_text': 'Restricted: Not Recorded',
+                            'error': True,
+                            'error_message': 'Faculty attendance is not recorded in Classroom Live Vision.',
+                            'bbox': [int(top), int(right), int(bottom), int(left)],
+                            'box_top_pct': box_top_pct,
+                            'box_bottom_pct': box_bottom_pct,
+                            'box_left_pct': box_left_pct,
+                            'box_right_pct': box_right_pct,
+                            'box_width_pct': box_width_pct,
+                            'box_height_pct': box_height_pct
+                        })
+                        continue
+                
+                # CLASS RESTRICTION: Student doesn't belong to the teacher's class
+                if target_role == 'student' and rec.get('recognized') and not is_teacher:
+                    if allowed_class and rec.get('class_name') != allowed_class:
+                        matches.append({
+                            'student_id': s_id,
+                            'name': rec.get('name', 'Student'),
+                            'class_name': rec.get('class_name', ''),
+                            'confidence': float(rec.get('confidence', 0.0)),
+                            'recognized': False, # Explicitly false so it's not marked present
+                            'is_restricted': True,
+                            'role': 'student',
+                            'roleLabel': 'Wrong Class / Unauthorized',
+                            'error': True,
+                            'error_message': f"Student belongs to {rec.get('class_name', 'another class')} and cannot be marked present in {allowed_class}.",
+                            'bbox': [int(top), int(right), int(bottom), int(left)],
+                            'box_top_pct': box_top_pct,
+                            'box_bottom_pct': box_bottom_pct,
+                            'box_left_pct': box_left_pct,
+                            'box_right_pct': box_right_pct,
+                            'box_width_pct': box_width_pct,
+                            'box_height_pct': box_height_pct
+                        })
+                        continue
+                
+                # Execute auto-attendance if recognized
+                if rec.get('recognized') and s_id:
+                    # Auto-attendance is ONLY for Classroom Live Attendance (Students)
+                    # For Faculty Kiosk, the frontend handles explicit Check-In or Check-Out API calls.
+                    if target_role == 'student' and not is_teacher:
+                        try:
+                            self._attendance_callback(s_id, float(rec.get('confidence', 0.95)))
+                        except Exception as e:
+                            logger.error(f"Auto-attendance recording error: {e}")
+
                 matches.append({
                     'student_id': s_id,
                     'name': rec.get('name', 'Unknown Face'),
@@ -163,12 +266,20 @@ class RecognitionService:
                     'confidence': float(rec.get('confidence', 0.0)),
                     'recognized': bool(rec.get('recognized', False)),
                     'role': 'teacher' if is_teacher else 'student',
-                    'bbox': face_locations[i]
+                    'bbox': [int(top), int(right), int(bottom), int(left)],
+                    'box_top_pct': box_top_pct,
+                    'box_bottom_pct': box_bottom_pct,
+                    'box_left_pct': box_left_pct,
+                    'box_right_pct': box_right_pct,
+                    'box_width_pct': box_width_pct,
+                    'box_height_pct': box_height_pct
                 })
                 
             return {
                 'face_detected': True,
                 'count': len(faces),
+                'frame_width': int(w_frame),
+                'frame_height': int(h_frame),
                 'results': matches
             }
         except Exception as e:
@@ -224,8 +335,8 @@ class RecognitionService:
     def get_camera_stream(self):
         if not self._initialized:
             self.init_pipeline()
-        if self.camera and self.recognizer:
-            return self.camera.generate_annotated_stream(recognizer_callback=self.recognizer.recognize_multiple)
+        if self.camera:
+            return self.camera.generate_mjpeg_stream()
         return None
 
 # Global singleton
@@ -251,8 +362,8 @@ def get_status():
 def get_latest_results():
     return _recognition_service.get_latest_results()
 
-def detect_and_recognize_frame(image_data=None, allowed_class=None):
-    return _recognition_service.detect_and_recognize_frame(image_data, allowed_class)
+def detect_and_recognize_frame(image_data=None, allowed_class=None, target_role=None):
+    return _recognition_service.detect_and_recognize_frame(image_data, allowed_class, target_role)
 
 def get_camera_stream():
     return _recognition_service.get_camera_stream()

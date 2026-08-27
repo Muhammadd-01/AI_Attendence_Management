@@ -10,6 +10,8 @@ export default function StatusBadge({ status }) {
       case 'present': return <CheckCircle className="w-4 h-4 mr-1.5" />;
       case 'absent': return <XCircle className="w-4 h-4 mr-1.5" />;
       case 'late': return <Clock className="w-4 h-4 mr-1.5" />;
+      case 'half day':
+      case 'halfday': return <Clock className="w-4 h-4 mr-1.5 text-amber-500" />;
       default: return <HelpCircle className="w-4 h-4 mr-1.5" />;
     }
   };

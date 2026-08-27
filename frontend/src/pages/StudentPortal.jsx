@@ -22,14 +22,16 @@ export default function StudentPortal() {
       try {
         const res = await fetch(`/api/attendance?student_id=${user.id}`).then(r => r.json());
         if (res.success && res.data) {
-          const records = res.data;
+          // In the new paginated API, res.data is an object containing { records: [...] }
+          const records = Array.isArray(res.data) ? res.data : (res.data.records || []);
           setHistory(records);
           
           let p = 0, a = 0, l = 0;
           records.forEach(r => {
-            if (r.status === 'present') p++;
-            else if (r.status === 'absent') a++;
-            else if (r.status === 'late') l++;
+            const stat = r.status?.toLowerCase();
+            if (stat === 'present' || stat === 'on time') p++;
+            else if (stat === 'absent') a++;
+            else if (stat === 'late' || stat === 'half day') l++;
           });
           setStats({ present: p, absent: a, late: l, total: records.length });
         }
@@ -55,11 +57,28 @@ export default function StudentPortal() {
         <div className="absolute top-0 right-0 p-8 opacity-10">
           <Award className="w-48 h-48" />
         </div>
-        <div className="relative z-10">
-          <h1 className="text-3xl font-bold mb-2">Welcome back, {user.name}!</h1>
-          <p className="text-primary-100 flex items-center gap-2">
-            <User className="w-4 h-4" /> {user.id} | {user.assignedClass} - {user.department}
-          </p>
+        <div className="relative z-10 flex items-center gap-6">
+          {user.avatar_url ? (
+            <motion.img 
+              initial={{ scale: 0.5, rotate: -15, opacity: 0 }}
+              animate={{ scale: 1, rotate: 0, opacity: 1 }}
+              whileHover={{ scale: 1.1, rotate: 5 }}
+              transition={{ type: "spring", stiffness: 300, damping: 15 }}
+              src={user.avatar_url} 
+              alt={user.name} 
+              className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border-4 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.4)] relative z-10" 
+            />
+          ) : (
+            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-4 border-white/30 shadow-xl flex items-center justify-center text-3xl font-bold text-white bg-primary-800">
+              {(user.name || 'U').split(' ').map(n => n[0]).join('').slice(0, 2)}
+            </div>
+          )}
+          <div>
+            <h1 className="text-3xl font-bold mb-2">Welcome back, {user.name}!</h1>
+            <p className="text-primary-100 flex items-center gap-2">
+              <User className="w-4 h-4" /> {user.id} | {user.assignedClass} - {user.department}
+            </p>
+          </div>
         </div>
       </motion.div>
 

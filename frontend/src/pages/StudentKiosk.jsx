@@ -4,9 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Fingerprint, CheckCircle2, Shield, ScanFace, ArrowLeft, 
   Sparkles, Video, UserCheck, RefreshCw, Clock, Award,
-  GraduationCap, Users, LogIn, LogOut, Timer, Cpu, Scan, Check
+  GraduationCap, Users, LogIn, LogOut, Timer, Cpu, Scan, Check,
+  AlertCircle, AlertTriangle
 } from 'lucide-react';
 import CameraFeed from '../components/CameraFeed';
+import AIFaceGrid from '../components/AIFaceGrid';
 import { verifyBiometricFingerprint, isBiometricAvailable } from '../services/biometricService';
 import { recordCheckIn, recordCheckOut } from '../services/attendanceApi';
 import { startSession, stopSession, getLatestResults } from '../services/recognitionApi';
@@ -66,76 +68,30 @@ export default function StudentKiosk() {
     };
   }, []);
 
-  // Continuous Real-Time Automated Face Detection Polling Loop
+  const cameraRef = useRef(null);
+  const authStatusRef = useRef(authStatus);
   useEffect(() => {
-    if (!isScanningActive || authStatus === 'success' || authStatus === 'scanning') return;
+    authStatusRef.current = authStatus;
+  }, [authStatus]);
 
-    const interval = setInterval(async () => {
-      try {
-        const res = await getLatestResults();
-        const results = res?.data || res || [];
+  const lastCheckedInIdRef = useRef(null);
+  const lockCountRef = useRef(0);
 
-        if (Array.isArray(results) && results.length > 0) {
-          const match = results[0];
-          if (match.recognized && match.student_id) {
-            const isTeacher = String(match.student_id).startsWith('TCH') || String(match.student_id).startsWith('T-');
-            setDetectedFace({
-              id: match.student_id,
-              name: match.name || 'Verified Attendee',
-              role: isTeacher ? 'teacher' : 'student',
-              roleLabel: isTeacher ? 'Faculty Member' : 'Student',
-              confidence: Math.round((match.confidence || 0.96) * 100)
-            });
-            return;
-          }
-        }
+  // Allow a person to scan again immediately if the kiosk mode changes (e.g., check-in -> check-out)
+  useEffect(() => {
+    lastCheckedInIdRef.current = null;
+    lockCountRef.current = 0;
+  }, [actionType]);
 
-        // If no face was detected in latest frame, also query scan-frame
-        const isTeacherUser = user?.role === 'teacher';
-        const scanRes = await fetch('/api/recognition/scan-frame', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ allowedClass: isTeacherUser ? (user?.assignedClass || '') : null })
-        }).then(r => r.json()).catch(() => null);
+  // Execute Face Attendance Verification (Instant or Automatic for Faculty & Staff)
+  const executeAttendance = async (person = detectedFace) => {
+    if (!person || person.error) return;
+    if (authStatusRef.current === 'scanning' || authStatusRef.current === 'success') return;
 
-        if (scanRes?.data?.face_detected && scanRes?.data?.results?.length > 0) {
-          const m = scanRes.data.results[0];
-          if (m.recognized && m.student_id) {
-            const isTeacher = m.role === 'teacher' || String(m.student_id).startsWith('TCH');
-            setDetectedFace({
-              id: m.student_id,
-              name: m.name,
-              role: isTeacher ? 'teacher' : 'student',
-              roleLabel: isTeacher ? 'Faculty Member' : 'Student',
-              confidence: Math.round((m.confidence || 0.95) * 100)
-            });
-            return;
-          } else if (!m.recognized || m.name === 'Unknown') {
-            setDetectedFace({
-              error: true,
-              name: 'ERROR: NOT FOUND',
-              roleLabel: 'Face not registered'
-            });
-            return;
-          }
-        }
-
-        // If nothing was detected by the camera
-        setDetectedFace(null);
-      } catch (err) {
-        // silent polling catch
-      }
-    }, 1200);
-
-    return () => clearInterval(interval);
-  }, [isScanningActive, authStatus]);
-
-  // Execute Face Attendance Verification (Instant or Automatic)
-  const handleExecuteFaceAttendance = async () => {
-    if (!detectedFace || detectedFace.error) {
-      if (!detectedFace?.error) {
-        toast('Please position your face directly in front of the camera', { icon: '📷' });
-      }
+    // Ensure Kiosk is strictly for Faculty / Principal / Staff
+    if (person.role === 'student') {
+      toast.error('Access Restricted: Kiosk is for Faculty & Staff only. Students are marked via Classroom Live Attendance.');
+      setAuthStatus('idle');
       return;
     }
 
@@ -144,37 +100,38 @@ export default function StudentKiosk() {
       let record;
       if (actionType === 'check-in') {
         const res = await recordCheckIn({
-          student_id: detectedFace.id,
-          student_name: detectedFace.name,
-          person_type: detectedFace.role,
-          confidence: detectedFace.confidence / 100
+          student_id: person.id,
+          student_name: person.name,
+          person_type: 'teacher',
+          confidence: (person.confidence || 95) / 100
         });
         record = res?.data || res;
         
         if (record?.already_checked_in) {
-          toast.success(`${detectedFace.roleLabel} ${detectedFace.name} (${detectedFace.id}) is ALREADY CHECKED IN today.`, {
+          toast.success(`${person.roleLabel || 'Faculty'} ${person.name} (${person.id}) is ALREADY CHECKED IN today.`, {
             icon: '✅',
             duration: 4000
           });
           setDetectedFace(prev => prev ? { ...prev, alreadyCheckedIn: true } : prev);
         } else {
-          toast.success(`Check-In Verified: ${detectedFace.roleLabel} ${detectedFace.name} (${detectedFace.id})`, { duration: 4000 });
+          toast.success(`Check-In Verified: ${person.roleLabel || 'Faculty'} ${person.name} (${person.id})`, { duration: 4000 });
         }
       } else {
         const res = await recordCheckOut({
-          student_id: detectedFace.id,
-          student_name: detectedFace.name,
-          person_type: detectedFace.role
+          student_id: person.id,
+          student_name: person.name,
+          person_type: 'teacher'
         });
         record = res?.data || res;
-        toast.success(`Check-Out Completed: ${detectedFace.roleLabel} ${detectedFace.name} (${detectedFace.id})`);
+        toast.success(`Check-Out Completed: ${person.roleLabel || 'Faculty'} ${person.name} (${person.id})`);
       }
 
+      lastCheckedInIdRef.current = person.id;
       setVerifiedPerson({
-        name: detectedFace.name,
-        id: detectedFace.id,
-        role: detectedFace.role,
-        roleLabel: detectedFace.roleLabel,
+        name: person.name,
+        id: person.id,
+        role: 'teacher',
+        roleLabel: person.roleLabel || 'Faculty Member',
         method: 'AI Deep Face Vision Neural Match',
         action: actionType,
         checkInTime: record?.check_in_time || '08:30:00',
@@ -184,25 +141,100 @@ export default function StudentKiosk() {
         already_checked_in: record?.already_checked_in
       });
       setAuthStatus('success');
+
+      // Auto-reset modal for next attendee (2s for already checked in, 2.5s for new check-in)
+      const dismissDelay = record?.already_checked_in ? 2000 : 2500;
+      setTimeout(() => {
+        setAuthStatus('idle');
+        setVerifiedPerson(null);
+        setDetectedFace(null);
+        lockCountRef.current = 0;
+      }, dismissDelay);
     } catch (err) {
-      console.error(err);
+      console.error('Attendance recording error:', err);
       toast.error('Attendance recording error');
       setAuthStatus('idle');
+      lockCountRef.current = 0;
     }
   };
 
-  // Automatic Face Attendance Trigger
+  // Continuous Real-Time Automated Face Detection Polling Loop (Faculty Target)
   useEffect(() => {
-    if (detectedFace && !detectedFace.error && authStatus === 'idle') {
-      const timer = setTimeout(() => {
-        handleExecuteFaceAttendance();
-      }, 1500); // Wait 1.5 seconds after solid face lock to auto-trigger
-      
-      return () => clearTimeout(timer);
-    }
-  }, [detectedFace, authStatus]);
+    if (!isScanningActive || authStatus === 'success' || authStatus === 'scanning') return;
 
-  // Hardware Touch ID Fingerprint Scan
+    const interval = setInterval(async () => {
+      try {
+        let frameBlob = null;
+        if (cameraRef.current) {
+          frameBlob = await cameraRef.current.captureFrame();
+        }
+
+        let results = [];
+        if (frameBlob) {
+          const reader = new FileReader();
+          const base64Promise = new Promise(resolve => {
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(frameBlob);
+          });
+          const base64 = await base64Promise;
+
+          const scanRes = await fetch('/api/recognition/scan-frame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              image: base64,
+              targetRole: 'faculty'
+            })
+          }).then(r => r.json()).catch(() => null);
+
+          if (scanRes?.data?.face_detected && scanRes?.data?.results?.length > 0) {
+            results = scanRes.data.results;
+          }
+        }
+
+        if (Array.isArray(results) && results.length > 0) {
+          const match = results[0];
+          const isTeacher = String(match.student_id).startsWith('TCH') || String(match.student_id).startsWith('T-') || String(match.student_id).startsWith('PRN') || match.role === 'teacher';
+          const personObj = {
+            id: match.student_id,
+            name: match.name || (match.recognized ? 'Verified Faculty' : (match.error_message ? 'STUDENT (RESTRICTED)' : 'Unknown Face')),
+            role: isTeacher ? 'teacher' : 'student',
+            roleLabel: isTeacher ? 'Faculty Member' : (match.roleLabel || 'Student'),
+            confidence: Math.round((match.confidence || 0.96) * 100),
+            error: !match.recognized || match.error || match.name === 'Unknown' || !isTeacher,
+            box_top_pct: match.box_top_pct,
+            box_bottom_pct: match.box_bottom_pct,
+            box_left_pct: match.box_left_pct,
+            box_right_pct: match.box_right_pct,
+            box_width_pct: match.box_width_pct,
+            box_height_pct: match.box_height_pct
+          };
+          setDetectedFace(personObj);
+
+          if (match.recognized && match.student_id && isTeacher) {
+            // Instant Automatic Check-In Trigger on Faculty Face Detection
+            if (authStatusRef.current === 'idle' && lastCheckedInIdRef.current !== match.student_id) {
+              lockCountRef.current += 1;
+              if (lockCountRef.current >= 1) {
+                executeAttendance(personObj);
+              }
+            }
+          } else {
+            lockCountRef.current = 0;
+          }
+          return;
+        }
+
+        // Instant Face Removal: Clear instantly with 0ms delay when face leaves camera
+        setDetectedFace(null);
+        lockCountRef.current = 0;
+      } catch (err) {
+        // silent polling catch
+      }
+    }, 450);
+
+    return () => clearInterval(interval);
+  }, [isScanningActive, authStatus, user]);  // Hardware Touch ID Fingerprint Scan (Faculty & Staff Only)
   const handleFingerprintScan = async () => {
     setAuthStatus('scanning');
     try {
@@ -213,17 +245,17 @@ export default function StudentKiosk() {
         await new Promise(r => setTimeout(r, 1200));
       }
 
-      // If a face is in frame, use that person; otherwise look up first registered individual
-      const person = detectedFace || (teachersList.length > 0 ? {
+      // Kiosk Touch ID is exclusively for Teachers & Principal
+      const person = (detectedFace && detectedFace.role === 'teacher') ? detectedFace : (teachersList.length > 0 ? {
         id: teachersList[0].teacher_id || teachersList[0].id,
         name: teachersList[0].name,
         role: 'teacher',
         roleLabel: 'Faculty Member'
       } : {
-        id: studentsList[0]?.student_id || 'ST001',
-        name: studentsList[0]?.name || 'Muhammad Affan',
-        role: 'student',
-        roleLabel: 'Student'
+        id: 'TCH-001',
+        name: 'Faculty Member',
+        role: 'teacher',
+        roleLabel: 'Faculty Member'
       });
 
       let record;
@@ -231,37 +263,46 @@ export default function StudentKiosk() {
         const res = await recordCheckIn({
           student_id: person.id,
           student_name: person.name,
-          person_type: person.role,
-          confidence: 0.98
+          person_type: 'teacher',
+          confidence: 0.99
         });
         record = res?.data || res;
-        toast.success(`Touch ID Check-In: ${person.roleLabel} ${person.name}`);
+        toast.success(`Faculty Touch ID Check-In: ${person.name}`);
       } else {
         const res = await recordCheckOut({
           student_id: person.id,
           student_name: person.name,
-          person_type: person.role
+          person_type: 'teacher'
         });
         record = res?.data || res;
-        toast.success(`Touch ID Check-Out: ${person.roleLabel} ${person.name}`);
+        toast.success(`Faculty Touch ID Check-Out: ${person.name}`);
       }
 
       setVerifiedPerson({
         name: person.name,
         id: person.id,
-        role: person.role,
-        roleLabel: person.roleLabel,
+        role: 'teacher',
+        roleLabel: person.roleLabel || 'Faculty Member',
         method: 'Hardware Touch ID Sensor',
         action: actionType,
         checkInTime: record?.check_in_time || '08:30:00',
         checkOutTime: record?.check_out_time || formatTime(new Date().toISOString()),
         duration: record?.duration_minutes ? formatDurationMins(record.duration_minutes) : 'Calculating...',
-        time: formatTime(new Date().toISOString())
+        time: formatTime(new Date().toISOString()),
+        already_checked_in: record?.already_checked_in
       });
       setAuthStatus('success');
+
+      const dismissDelay = record?.already_checked_in ? 2000 : 2500;
+      setTimeout(() => {
+        setAuthStatus('idle');
+        setVerifiedPerson(null);
+        setDetectedFace(null);
+        lockCountRef.current = 0;
+      }, dismissDelay);
     } catch (err) {
       console.error(err);
-      toast.error('Biometric authentication failed');
+      toast.error('Touch ID verification failed');
       setAuthStatus('idle');
     }
   };
@@ -290,9 +331,9 @@ export default function StudentKiosk() {
 
         {/* Action Toggle (Check-In vs Check-Out) */}
         <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-[11px] font-mono font-semibold text-slate-300">
-            <Cpu className="w-3.5 h-3.5 text-primary-400" />
-            <span>Automated AI Computer Vision Engine</span>
+          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-950/80 border border-emerald-800 text-[11px] font-mono font-semibold text-emerald-300">
+            <Users className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Faculty & Staff Attendance Kiosk</span>
           </div>
 
           <div className="flex bg-slate-900/90 border border-slate-800 p-1 rounded-2xl">
@@ -345,12 +386,12 @@ export default function StudentKiosk() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-white tracking-tight">
-                    AI Face Presence Scanner
+                    Faculty Presence Scanner
                   </h2>
                   <p className="text-xs text-slate-400">
                     {detectedFace 
-                      ? `Locked: ${detectedFace.roleLabel} ${detectedFace.name}` 
-                      : 'Watching camera • Step into frame to detect face'}
+                      ? (detectedFace.error ? 'Student / Unregistered Face' : `Locked: Faculty ${detectedFace.name}`) 
+                      : 'Watching camera • Teachers & Principal step into frame'}
                   </p>
                 </div>
               </div>
@@ -362,20 +403,18 @@ export default function StudentKiosk() {
                       ? 'bg-red-950/80 text-red-400 border-red-800/60'
                       : detectedFace.alreadyCheckedIn
                         ? 'bg-blue-950/80 text-blue-400 border-blue-800/60'
-                        : detectedFace.role === 'teacher' 
-                          ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60' 
-                          : 'bg-primary-950/80 text-primary-400 border-primary-800/60')
+                        : 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60')
                   : 'bg-slate-800 text-slate-400 border-slate-700'
               }`}>
                 {detectedFace 
-                  ? (detectedFace.error ? 'UNKNOWN FACE' : detectedFace.alreadyCheckedIn ? 'ALREADY RECORDED' : detectedFace.role === 'teacher' ? 'FACULTY DETECTED' : 'STUDENT DETECTED') 
+                  ? (detectedFace.error ? 'ACCESS RESTRICTED' : detectedFace.alreadyCheckedIn ? 'ALREADY RECORDED' : 'FACULTY DETECTED') 
                   : 'NO PERSON DETECTED'}
               </span>
             </div>
 
             {/* Viewfinder Canvas */}
             <div className="aspect-video rounded-2xl overflow-hidden bg-black relative border-2 border-slate-800 flex items-center justify-center">
-              <CameraFeed streamUrl="/video_feed" active={true} className="w-full h-full object-cover" />
+              <CameraFeed ref={cameraRef} active={true} forceLocalWebcam={true} className="w-full h-full object-cover" />
               
               {/* Holographic AI HUD Overlay */}
               <div className="absolute inset-0 border-2 border-primary-500/20 rounded-2xl pointer-events-none flex flex-col items-center justify-between p-4">
@@ -389,42 +428,28 @@ export default function StudentKiosk() {
                   </span>
                 </div>
 
-                {/* Face Reticle with Dynamic Presence */}
-                {detectedFace ? (
-                  <motion.div 
-                    initial={{ scale: 0.8, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    className={`w-48 h-48 border-2 rounded-3xl relative flex flex-col items-center justify-end p-2 shadow-lg ${
-                      detectedFace.error ? 'border-red-500/80 shadow-red-600/20' : 'border-emerald-400/80 shadow-emerald-500/20'
-                    }`}
-                  >
-                    <span className={`absolute -top-1.5 -left-1.5 w-4 h-4 border-t-2 border-l-2 ${detectedFace.error ? 'border-red-500' : 'border-emerald-400'}`} />
-                    <span className={`absolute -top-1.5 -right-1.5 w-4 h-4 border-t-2 border-r-2 ${detectedFace.error ? 'border-red-500' : 'border-emerald-400'}`} />
-                    <span className={`absolute -bottom-1.5 -left-1.5 w-4 h-4 border-b-2 border-l-2 ${detectedFace.error ? 'border-red-500' : 'border-emerald-400'}`} />
-                    <span className={`absolute -bottom-1.5 -right-1.5 w-4 h-4 border-b-2 border-r-2 ${detectedFace.error ? 'border-red-500' : 'border-emerald-400'}`} />
-                    
-                    {/* Floating Identification Tag on Face */}
-                    <div className={`px-3 py-1 rounded-xl text-center backdrop-blur-md shadow-xl border text-[11px] font-mono font-bold ${
-                      detectedFace.error 
-                        ? 'bg-red-950/90 text-red-400 border-red-500'
-                        : detectedFace.alreadyCheckedIn
-                          ? 'bg-blue-950/90 text-blue-300 border-blue-400'
-                          : detectedFace.role === 'teacher'
-                            ? 'bg-emerald-950/90 text-emerald-300 border-emerald-400'
-                            : 'bg-primary-950/90 text-primary-300 border-primary-400'
-                    }`}>
-                      <p className="truncate max-w-[150px] uppercase">{detectedFace.name}</p>
-                      {detectedFace.id && <p className="text-[9px] opacity-90">{detectedFace.id} • {detectedFace.alreadyCheckedIn ? 'ALREADY MARKED' : detectedFace.roleLabel}</p>}
-                      {!detectedFace.id && <p className="text-[9px] opacity-90 text-red-200">{detectedFace.roleLabel}</p>}
-                    </div>
-                  </motion.div>
-                ) : (
-                  <div className="w-48 h-48 border border-dashed border-slate-600/70 rounded-3xl relative flex flex-col items-center justify-center p-3 text-center">
-                    <Scan className="w-8 h-8 text-slate-500 animate-pulse mb-1" />
-                    <p className="text-[10px] font-mono text-slate-400 font-bold">NO ATTENDEE IN FRAME</p>
-                    <p className="text-[8px] font-mono text-slate-500">Watching camera live feed...</p>
-                  </div>
-                )}
+                {/* Futuristic Holographic AI Face Mesh Grid */}
+                <AIFaceGrid detectedFace={detectedFace} authStatus={authStatus} />
+
+                {/* Warning Overlay when Already Checked In */}
+                <AnimatePresence>
+                  {detectedFace && detectedFace.alreadyCheckedIn && actionType === 'check-in' && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      className="absolute inset-x-4 top-14 z-30 p-3.5 rounded-2xl bg-amber-950/95 border-2 border-amber-400 text-amber-200 text-center shadow-2xl backdrop-blur-md"
+                    >
+                      <p className="font-black text-xs sm:text-sm uppercase tracking-wide flex items-center justify-center gap-2 text-amber-300">
+                        <AlertCircle className="w-5 h-5 text-amber-400 animate-pulse" />
+                        PLEASE REMOVE YOUR FACE: YOU ARE ALREADY CHECKED IN
+                      </p>
+                      <p className="text-[11px] text-amber-100/90 mt-1 font-medium">
+                        Attendance is already recorded for today. Please step away for the next faculty member, or switch to Check-Out when leaving.
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 {/* Bottom Status bar inside Camera */}
                 <div className="w-full flex items-center justify-between text-[10px] font-mono">
@@ -457,7 +482,7 @@ export default function StudentKiosk() {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={handleExecuteFaceAttendance}
+            onClick={() => executeAttendance(detectedFace)}
             disabled={authStatus === 'scanning'}
             className={`mt-4 w-full py-3.5 text-white font-bold rounded-2xl shadow-lg text-xs sm:text-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
               !detectedFace

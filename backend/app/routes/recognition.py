@@ -44,7 +44,12 @@ def scan_frame():
         data = request.get_json(silent=True) or {}
         image_data = data.get('image')
         allowed_class = data.get('allowedClass')
-        res = recognition_service.detect_and_recognize_frame(image_data=image_data, allowed_class=allowed_class)
+        target_role = data.get('targetRole') or data.get('personType')
+        res = recognition_service.detect_and_recognize_frame(
+            image_data=image_data, 
+            allowed_class=allowed_class,
+            target_role=target_role
+        )
         return success_response(res)
     except Exception as e:
         return error_response(str(e))

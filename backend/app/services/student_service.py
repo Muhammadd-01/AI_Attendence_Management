@@ -53,23 +53,29 @@ from concurrent.futures import ThreadPoolExecutor
 def download_supabase_images(student_id, image_urls):
     """
     Downloads images from Supabase and returns them as in-memory RGB numpy arrays.
-    Uses multi-threading for speed.
+    Uses multi-threading with retry logic to avoid rate limits or timeouts.
     """
-    def fetch_url(url):
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                img_bytes = resp.read()
-                np_arr = np.frombuffer(img_bytes, np.uint8)
-                bgr_frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                if bgr_frame is not None:
-                    return cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
-        except Exception as e:
-            logger.warning(f"Error downloading {url}: {e}")
+    def fetch_url(url, retries=3):
+        for attempt in range(retries):
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                # 15s timeout, increasing by 5s each attempt
+                with urllib.request.urlopen(req, timeout=15 + (attempt * 5)) as resp:
+                    img_bytes = resp.read()
+                    np_arr = np.frombuffer(img_bytes, np.uint8)
+                    bgr_frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                    if bgr_frame is not None:
+                        return cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
+            except Exception as e:
+                if attempt < retries - 1:
+                    time.sleep(1.5 * (attempt + 1))  # Exponential backoff
+                else:
+                    logger.warning(f"Error downloading {url} after {retries} attempts: {e}")
         return None
 
     frames = []
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    # Reduced to 5 workers to avoid "Connection reset by peer" and SSL handshake limits
+    with ThreadPoolExecutor(max_workers=5) as executor:
         results = executor.map(fetch_url, image_urls)
         for res in results:
             if res is not None:
@@ -125,7 +131,11 @@ def train_student_model(student_id, image_urls=None):
         frames_to_encode.extend(download_supabase_images(student_id, image_urls))
         
     dataset_path = get_dataset_path() / str(student_id)
-    image_paths = list(dataset_path.glob("*.jpg")) + list(dataset_path.glob("*.png")) + list(dataset_path.glob("*.jpeg"))
+    image_paths = []
+    
+    # Only use local disk images if no supabase images were provided
+    if not frames_to_encode:
+        image_paths = list(dataset_path.glob("*.jpg")) + list(dataset_path.glob("*.png")) + list(dataset_path.glob("*.jpeg"))
     
     if not frames_to_encode and not image_paths:
         st_data = student.get_student(student_id) or {}

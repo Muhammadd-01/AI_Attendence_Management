@@ -5,6 +5,48 @@ import { Camera, Check, Play, Square, Loader, Upload, ArrowRight, ArrowLeft, Arr
 import { motion, AnimatePresence } from 'framer-motion';
 import { uploadFaceImage, getStudentFaces } from '../services/supabase';
 
+const cartoonizeBlob = async (blob) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const maxWidth = 500;
+      let width = img.width;
+      let height = img.height;
+      if (width > maxWidth) {
+        height = Math.round(height * maxWidth / width);
+        width = maxWidth;
+      }
+      canvas.width = width;
+      canvas.height = height;
+
+      // 1. Draw Original with color boost filter for a vibrant cartoon look
+      ctx.filter = 'contrast(1.4) saturate(2.2) sepia(0.15) hue-rotate(-5deg)';
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // 2. Posterize (Quantize colors to look like a painting/cartoon)
+      const imgData = ctx.getImageData(0, 0, width, height);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        // Flat colors (bins of 35)
+        data[i] = Math.floor(data[i] / 35) * 35;       // R
+        data[i+1] = Math.floor(data[i+1] / 35) * 35;   // G
+        data[i+2] = Math.floor(data[i+2] / 35) * 35;   // B
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      canvas.toBlob((cartoonBlob) => {
+        if (cartoonBlob) resolve(cartoonBlob);
+        else reject(new Error('Canvas toBlob failed'));
+      }, 'image/jpeg', 0.95);
+    };
+    img.onerror = () => reject(new Error('Image load failed'));
+    img.src = URL.createObjectURL(blob);
+  });
+};
+
 export default function FaceCapture({ personId, personName, bucket = 'student-faces', onComplete, onClose }) {
   const [tab, setTab] = useState('camera');
   const [imagesCaptured, setImagesCaptured] = useState(0);
@@ -12,8 +54,8 @@ export default function FaceCapture({ personId, personName, bucket = 'student-fa
   const [autoMode, setAutoMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isAutoTraining, setIsAutoTraining] = useState(false);
-  const maxImages = 100;
-  const minRequired = 10;
+  const maxImages = 20;
+  const minRequired = 5;
   
   const cameraRef = useRef(null);
   const isCapturingRef = useRef(false);
@@ -96,17 +138,29 @@ export default function FaceCapture({ personId, personName, bucket = 'student-fa
       if (cameraRef.current) {
         const blob = await cameraRef.current.captureFrame();
         if (blob) {
-          // Upload to Supabase storage
+          // If it's the very first image, generate a cartoonized avatar!
+          if (imagesCaptured === 0) {
+            try {
+              const cartoonBlob = await cartoonizeBlob(blob);
+              // Upload the cartoonized avatar explicitly as 'avatar'
+              const avatarUrl = await uploadFaceImage(personId, cartoonBlob, 'avatar', bucket);
+              if (avatarUrl) setBestImageUrl(avatarUrl);
+            } catch (err) {
+              console.error("Cartoonization failed:", err);
+            }
+          }
+
+          // Upload raw training image to Supabase storage
           uploadFaceImage(personId, blob, imagesCaptured + 1, bucket)
             .then(currentUrl => {
-              if (currentUrl && (!bestImageUrl || imagesCaptured === 0)) {
-                setBestImageUrl(currentUrl);
+              if (currentUrl && !bestImageUrl && imagesCaptured === 0) {
+                setBestImageUrl(currentUrl); // fallback if cartoon failed
               }
               setImagesCaptured(prev => {
                 const next = prev + 1;
                 if (next === maxImages) {
                   setAutoMode(false);
-                  setTimeout(() => triggerAutoTrain(100), 400);
+                  setTimeout(() => triggerAutoTrain(maxImages), 400);
                 }
                 return next;
               });
@@ -144,11 +198,11 @@ export default function FaceCapture({ personId, personName, bucket = 'student-fa
   };
 
   const getGuideContent = () => {
-    if (imagesCaptured < 20) return { text: "Look straight at the camera", icon: <Camera className="w-8 h-8 mx-auto mb-2 text-white/80" /> };
-    if (imagesCaptured < 45) return { text: "Turn your head slowly LEFT", icon: <ArrowLeft className="w-8 h-8 mx-auto mb-2 text-white/80 animate-pulse" /> };
-    if (imagesCaptured < 70) return { text: "Turn your head slowly RIGHT", icon: <ArrowRight className="w-8 h-8 mx-auto mb-2 text-white/80 animate-pulse" /> };
-    if (imagesCaptured < 90) return { text: "Tilt your head slightly UP", icon: <ArrowUp className="w-8 h-8 mx-auto mb-2 text-white/80 animate-pulse" /> };
-    return { text: "Finishing 100 photo dataset...", icon: <Check className="w-8 h-8 mx-auto mb-2 text-emerald-400 animate-bounce" /> };
+    if (imagesCaptured < 5) return { text: "Look straight at the camera", icon: <Camera className="w-8 h-8 mx-auto mb-2 text-white/80" /> };
+    if (imagesCaptured < 10) return { text: "Turn your head slowly LEFT", icon: <ArrowLeft className="w-8 h-8 mx-auto mb-2 text-white/80 animate-pulse" /> };
+    if (imagesCaptured < 15) return { text: "Turn your head slowly RIGHT", icon: <ArrowRight className="w-8 h-8 mx-auto mb-2 text-white/80 animate-pulse" /> };
+    if (imagesCaptured < 18) return { text: "Tilt your head slightly UP", icon: <ArrowUp className="w-8 h-8 mx-auto mb-2 text-white/80 animate-pulse" /> };
+    return { text: `Finishing ${maxImages} photo dataset...`, icon: <Check className="w-8 h-8 mx-auto mb-2 text-emerald-400 animate-bounce" /> };
   };
 
   const guide = getGuideContent();
@@ -185,7 +239,7 @@ export default function FaceCapture({ personId, personName, bucket = 'student-fa
               SUPABASE AI
             </span>
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">Capturing 100 face images for <strong>{personName || personId}</strong></p>
+          <p className="text-xs text-gray-500 mt-0.5">Capturing {maxImages} face images for <strong>{personName || personId}</strong></p>
         </div>
         
         <div className="flex rounded-xl bg-gray-100 dark:bg-slate-800 p-1">
@@ -208,21 +262,21 @@ export default function FaceCapture({ personId, personName, bucket = 'student-fa
               </div>
               {imagesCaptured === maxImages ? (
                 <p className="text-[11px] text-emerald-500 font-bold mt-2 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> 100 images saved! Auto-training in progress...
+                  <CheckCircle2 className="w-3.5 h-3.5" /> {maxImages} images saved! Auto-training in progress...
                 </p>
               ) : imagesCaptured >= minRequired ? (
                 <p className="text-[11px] text-emerald-500 font-medium mt-2">✓ {imagesCaptured} photos captured • Ready to auto-train</p>
               ) : (
-                <p className="text-[11px] text-amber-500 font-medium mt-2">Auto-captures 100 images to train AI</p>
+                <p className="text-[11px] text-amber-500 font-medium mt-2">Auto-captures {maxImages} images to train AI</p>
               )}
             </div>
 
             <div className="flex flex-col space-y-1.5 text-xs text-gray-500">
               <p className="font-semibold text-gray-700 dark:text-slate-300">Automatic Process:</p>
               <ul className="text-[11px] list-disc pl-4 space-y-1">
-                <li>Click <strong>Start 100-Photo Burst</strong></li>
+                <li>Click <strong>Start {maxImages}-Photo Burst</strong></li>
                 <li>System captures photos and uploads to Supabase</li>
-                <li>AI automatically trains on all 100 images upon completion</li>
+                <li>AI automatically trains on all {maxImages} images upon completion</li>
               </ul>
             </div>
 
@@ -241,7 +295,7 @@ export default function FaceCapture({ personId, personName, bucket = 'student-fa
                   disabled={imagesCaptured >= maxImages || isAutoTraining}
                   className={`flex-1 flex items-center justify-center py-2.5 px-3 rounded-xl text-white text-xs font-bold transition-all shadow-sm ${autoMode ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20' : 'bg-primary-600 hover:bg-primary-700 shadow-primary-600/20'} disabled:opacity-50`}
                 >
-                  {autoMode ? <><Square className="w-3.5 h-3.5 mr-1.5" /> Stop Burst</> : <><Play className="w-3.5 h-3.5 mr-1.5" /> Start 100 Burst</>}
+                  {autoMode ? <><Square className="w-3.5 h-3.5 mr-1.5" /> Stop Burst</> : <><Play className="w-3.5 h-3.5 mr-1.5" /> Start {maxImages} Burst</>}
                 </button>
               </div>
 

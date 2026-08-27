@@ -75,9 +75,6 @@ def check_out(student_id, date=None):
         
     doc = docs[0]
     data = doc.to_dict()
-    
-    if data.get('check_out_time'):
-        return data  # Already checked out
         
     check_in_time_str = data.get('check_in_time')
     duration_minutes = None
@@ -90,9 +87,20 @@ def check_out(student_id, date=None):
         except ValueError:
             pass
             
+    is_teacher = str(student_id).startswith('TCH') or str(student_id).startswith('T-') or data.get('person_type') == 'teacher' or data.get('role') == 'teacher'
+    
+    status = data.get('status', 'Present')
+    # If faculty / teacher didn't complete 8 hours (480 minutes) of duty upon checkout, mark as 'Half Day'
+    if is_teacher and duration_minutes is not None:
+        if duration_minutes < 480.0:  # 8 hours = 480 minutes
+            status = 'Half Day'
+        else:
+            status = 'Present' # if they check out again and now have > 8 hours, it should change from Half Day to Present
+
     update_data = {
         'check_out_time': time_str,
         'duration_minutes': duration_minutes,
+        'status': status,
         'updated_at': now
     }
     
@@ -114,15 +122,24 @@ def get_attendance_by_date(date_str):
     db = get_db()
     query = db.collection('attendance').where('date', '==', date_str)
     docs = query.stream()
-    
     results = []
+    seen = {}
+    
     for doc in docs:
         data = doc.to_dict()
         data['id'] = doc.id
         if 'person_type' not in data:
             data['person_type'] = 'teacher' if str(data.get('student_id', '')).startswith('TCH') else 'student'
-        results.append(data)
-        
+            
+        # Deduplicate: only keep the most recently updated/created document per person per day
+        s_id = data.get('student_id')
+        if s_id:
+            if s_id not in seen or str(data.get('updated_at', data.get('created_at', ''))) > str(seen[s_id].get('updated_at', seen[s_id].get('created_at', ''))):
+                seen[s_id] = data
+        else:
+            results.append(data)
+            
+    results.extend(seen.values())
     results.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
     return results
 

@@ -79,6 +79,25 @@ def delete_student(student_id):
     except Exception as e:
         pass
         
+    # Delete local dataset images so old faces don't mix if ID is reused
+    import shutil
+    try:
+        from app.utils.storage import get_dataset_path
+        dataset_path = get_dataset_path() / str(student_id)
+        if dataset_path.exists():
+            shutil.rmtree(dataset_path)
+    except Exception:
+        pass
+        
+    # Sync AI models so the deleted student is instantly forgotten from memory
+    try:
+        from app.services import recognition_service
+        if recognition_service._recognition_service and recognition_service._recognition_service.recognizer:
+            recognition_service._recognition_service.recognizer.remove_student(student_id)
+        recognition_service.sync_all()
+    except Exception:
+        pass
+        
     return True
 
 def update_face_count(student_id, count):

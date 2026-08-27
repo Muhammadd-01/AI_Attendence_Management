@@ -11,10 +11,6 @@ export default defineConfig({
         target: 'http://localhost:5001',
         changeOrigin: true,
       },
-      '/video_feed': {
-        target: 'http://localhost:5001',
-        changeOrigin: true,
-      },
     },
   },
 })

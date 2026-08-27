@@ -12,6 +12,33 @@ def get_teachers():
     except Exception as e:
         return error_response(str(e))
 
+@teachers_bp.route('/payroll', methods=['GET'])
+def get_all_payroll():
+    try:
+        month = request.args.get('month')
+        payroll = teacher_service.calculate_teacher_payroll(month=month)
+        return success_response(payroll)
+    except Exception as e:
+        return error_response(str(e))
+
+@teachers_bp.route('/<teacher_id>/payroll', methods=['GET'])
+def get_teacher_payroll(teacher_id):
+    try:
+        month = request.args.get('month')
+        payroll = teacher_service.calculate_teacher_payroll(teacher_id=teacher_id, month=month)
+        return success_response(payroll[0] if payroll else {})
+    except Exception as e:
+        return error_response(str(e))
+
+@teachers_bp.route('/<teacher_id>/salary', methods=['PUT', 'POST'])
+def update_teacher_salary(teacher_id):
+    try:
+        data = request.json or {}
+        updated = teacher_service.update_teacher_salary(teacher_id, data)
+        return success_response(updated, "Salary settings updated successfully")
+    except Exception as e:
+        return error_response(str(e))
+
 @teachers_bp.route('/<teacher_id>', methods=['GET'])
 def get_teacher(teacher_id):
     try:

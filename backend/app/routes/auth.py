@@ -70,7 +70,8 @@ def login():
                 "department": student_doc.get('course', ''),
                 "assignedClass": student_doc.get('class_name', ''),
                 "title": "Student",
-                "joinedDate": str(student_doc.get('registered_at', 'Unknown'))[:10]
+                "joinedDate": str(student_doc.get('registered_at', 'Unknown'))[:10],
+                "avatar_url": student_doc.get('avatar_url', '')
             }
         })
 
@@ -94,6 +95,7 @@ def login():
             "assignedClass": teacher_doc.get('assigned_class', ''),
             "phone": teacher_doc.get('phone', 'N/A'),
             "title": "Faculty Member",
-            "joinedDate": teacher_doc.get('created_at', 'Unknown')[:10]
+            "joinedDate": teacher_doc.get('created_at', 'Unknown')[:10],
+            "avatar_url": teacher_doc.get('avatar_url', '')
         }
     })

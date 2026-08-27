@@ -27,23 +27,29 @@ from concurrent.futures import ThreadPoolExecutor
 def download_supabase_images(teacher_id, image_urls):
     """
     Downloads images from Supabase and returns them as in-memory RGB numpy arrays.
-    Uses multi-threading for speed.
+    Uses multi-threading with retry logic to avoid rate limits or timeouts.
     """
-    def fetch_url(url):
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                img_bytes = resp.read()
-                np_arr = np.frombuffer(img_bytes, np.uint8)
-                bgr_frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                if bgr_frame is not None:
-                    return cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
-        except Exception as e:
-            logger.warning(f"Error downloading faculty image {url}: {e}")
+    def fetch_url(url, retries=3):
+        for attempt in range(retries):
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                # 15s timeout, increasing by 5s each attempt
+                with urllib.request.urlopen(req, timeout=15 + (attempt * 5)) as resp:
+                    img_bytes = resp.read()
+                    np_arr = np.frombuffer(img_bytes, np.uint8)
+                    bgr_frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                    if bgr_frame is not None:
+                        return cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
+            except Exception as e:
+                if attempt < retries - 1:
+                    time.sleep(1.5 * (attempt + 1))  # Exponential backoff
+                else:
+                    logger.warning(f"Error downloading faculty image {url} after {retries} attempts: {e}")
         return None
 
     frames = []
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    # Reduced to 5 workers to avoid "Connection reset by peer" and SSL handshake limits
+    with ThreadPoolExecutor(max_workers=5) as executor:
         results = executor.map(fetch_url, image_urls)
         for res in results:
             if res is not None:
@@ -79,6 +85,9 @@ def create_teacher(data):
         'department': data.get('department', 'Computer Science'),
         'assigned_class': data.get('assigned_class', ''),
         'status': data.get('status', 'active'),
+        'salary': float(data.get('salary', 85000.0)),
+        'hourly_rate': float(data.get('hourly_rate', 85000.0 / (26 * 8))),
+        'currency': 'PKR',
         'face_count': 0,
         'encodings_count': 0,
         'lastLogin': data.get('lastLogin', 'Never'),
@@ -98,23 +107,58 @@ def update_teacher(teacher_id, data):
         doc_ref = db.collection('teachers').document(teacher_id)
         
     update_data = data.copy()
+    if 'salary' in update_data and update_data['salary'] is not None:
+        try:
+            sal = float(update_data['salary'])
+            update_data['salary'] = sal
+            update_data['hourly_rate'] = round(sal / (26.0 * 8.0), 2)
+        except Exception:
+            pass
     update_data['updated_at'] = datetime.datetime.now().isoformat()
     doc_ref.update(update_data)
     return get_teacher(teacher_id)
 
 def delete_teacher(teacher_id):
     db = get_db()
+    
+    # 1. Delete teacher's encodings subcollection
+    try:
+        encodings_ref = db.collection('teachers').document(teacher_id).collection('encodings')
+        for doc in encodings_ref.stream():
+            doc.reference.delete()
+    except Exception:
+        pass
+        
+    # 2. Delete teacher document
     docs = list(db.collection('teachers').where('teacher_id', '==', teacher_id).limit(1).stream())
     if docs:
         docs[0].reference.delete()
     else:
         db.collection('teachers').document(teacher_id).delete()
         
-    # Cascade delete all attendance records for this teacher
+    # 3. Cascade delete all attendance records for this teacher
     try:
         att_docs = db.collection('attendance').where('student_id', '==', teacher_id).stream()
         for doc in att_docs:
             doc.reference.delete()
+    except Exception as e:
+        pass
+        
+    # 4. Delete local dataset images so old faces don't mix if ID is reused
+    import shutil
+    try:
+        dataset_path = get_dataset_path() / str(teacher_id)
+        if dataset_path.exists():
+            shutil.rmtree(dataset_path)
+    except Exception:
+        pass
+        
+    # 4. Sync AI models so the deleted teacher is instantly forgotten from memory
+    from app.services import recognition_service
+    try:
+        if recognition_service._recognition_service and recognition_service._recognition_service.recognizer:
+            recognition_service._recognition_service.recognizer.remove_student(teacher_id)
+        recognition_service.sync_all()
     except Exception as e:
         pass
         
@@ -163,7 +207,11 @@ def train_teacher_model(teacher_id, image_urls=None):
         frames_to_encode.extend(download_supabase_images(teacher_id, image_urls))
         
     dataset_path = get_dataset_path() / str(teacher_id)
-    image_paths = list(dataset_path.glob("*.jpg")) + list(dataset_path.glob("*.png")) + list(dataset_path.glob("*.jpeg"))
+    image_paths = []
+    
+    # Only use local disk images if no supabase images were provided
+    if not frames_to_encode:
+        image_paths = list(dataset_path.glob("*.jpg")) + list(dataset_path.glob("*.png")) + list(dataset_path.glob("*.jpeg"))
     
     if not frames_to_encode and not image_paths:
         t_data = get_teacher(teacher_id) or {}
@@ -221,3 +269,105 @@ def train_teacher_model(teacher_id, image_urls=None):
     except Exception as e:
         logger.error(f"Error training model for teacher {teacher_id}: {e}")
         return {"success": False, "error": str(e)}
+
+def update_teacher_salary(teacher_id, salary_data):
+    """Updates base monthly salary and hourly rate for a teacher"""
+    salary = float(salary_data.get('salary', 85000.0))
+    hourly_rate = float(salary_data.get('hourly_rate', salary / (26 * 8)))
+    return update_teacher(teacher_id, {
+        'salary': salary,
+        'hourly_rate': round(hourly_rate, 2),
+        'currency': 'PKR'
+    })
+
+def calculate_teacher_payroll(teacher_id=None, month=None):
+    """
+    Calculates salary for faculty based on base monthly salary,
+    duty duration (8-hour requirement), early checkouts, and half days.
+    """
+    db = get_db()
+    now = datetime.datetime.now()
+    month_str = month or now.strftime('%Y-%m') # e.g. '2026-08'
+    
+    if teacher_id:
+        t = get_teacher(teacher_id)
+        teachers_list = [t] if t else []
+    else:
+        teachers_list = get_all_teachers()
+        
+    # Fetch all teacher attendance records
+    attendance_query = db.collection('attendance').where('person_type', '==', 'teacher').stream()
+    all_records = [doc.to_dict() for doc in attendance_query]
+    
+    # Filter records for the specified month
+    month_records = [r for r in all_records if str(r.get('date', '')).startswith(month_str)]
+    
+    payroll_results = []
+    
+    for t in teachers_list:
+        t_id = t.get('teacher_id') or t.get('id')
+        base_salary = float(t.get('salary') or 85000.0)
+        total_working_days = 26  # Standard working days per month
+        daily_rate = round(base_salary / float(total_working_days), 2)
+        hourly_rate = round(daily_rate / 8.0, 2)
+        
+        # Get this teacher's attendance records
+        t_records = [r for r in month_records if r.get('student_id') == t_id]
+        
+        full_days = 0
+        half_days = 0
+        total_worked_hours = 0.0
+        early_checkout_records = []
+        
+        for r in t_records:
+            dur_mins = r.get('duration_minutes')
+            status = r.get('status', 'Present')
+            
+            # 8-hour duty rule: if duty duration < 480 minutes (8 hours) -> Half Day
+            is_half_day = status == 'Half Day' or (dur_mins is not None and dur_mins < 480.0)
+            
+            if is_half_day:
+                half_days += 1
+                dur_h = round(float(dur_mins or 0) / 60.0, 1) if dur_mins is not None else 4.0
+                early_checkout_records.append({
+                    'date': r.get('date'),
+                    'check_in': r.get('check_in_time', '--:--'),
+                    'check_out': r.get('check_out_time', '--:--'),
+                    'duration_hours': dur_h,
+                    'status': 'Half Day',
+                    'deduction_amount': round(daily_rate * 0.5, 2)
+                })
+            else:
+                full_days += 1
+                
+            if dur_mins is not None:
+                total_worked_hours += round(float(dur_mins) / 60.0, 1)
+            else:
+                total_worked_hours += 8.0
+                
+        # Deductions: 50% daily rate per half day
+        half_day_deductions = round(half_days * (daily_rate * 0.5), 2)
+        
+        # Net Salary to pay = Base Salary - Half Day Deductions
+        net_salary = max(0.0, round(base_salary - half_day_deductions, 2))
+        
+        payroll_results.append({
+            'teacher_id': t_id,
+            'name': t.get('name', 'Faculty Member'),
+            'email': t.get('email', ''),
+            'department': t.get('department', 'General'),
+            'base_salary': base_salary,
+            'daily_rate': daily_rate,
+            'hourly_rate': hourly_rate,
+            'total_working_days': total_working_days,
+            'attended_days': len(t_records),
+            'full_days': full_days,
+            'half_days': half_days,
+            'total_worked_hours': round(total_worked_hours, 1),
+            'half_day_deductions': half_day_deductions,
+            'net_salary': net_salary,
+            'early_checkouts': early_checkout_records,
+            'month': month_str
+        })
+        
+    return payroll_results

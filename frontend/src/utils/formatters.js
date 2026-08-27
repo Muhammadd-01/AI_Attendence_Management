@@ -28,6 +28,8 @@ export const getStatusColor = (status) => {
     case 'present': return 'badge-present';
     case 'absent': return 'badge-absent';
     case 'late': return 'badge-late';
+    case 'half day':
+    case 'halfday': return 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800';
     default: return 'badge-unknown';
   }
 };
