@@ -86,6 +86,8 @@ def manual_check_in():
         if not student_name or student_name == 'Unknown':
             return error_response("Unknown face detected.", 400)
             
+        method = data.get('method', 'face')
+
         # Check if already checked in today
         if attendance_model.is_checked_in_today(student_id):
             return success_response({"already_checked_in": True}, f"{person_type.capitalize()} attendance was already recorded today.")
@@ -95,7 +97,8 @@ def manual_check_in():
             student_name=student_name, 
             confidence=confidence, 
             session_id=session_id,
-            person_type=person_type
+            person_type=person_type,
+            method=method
         )
         return success_response(serialize_for_json(record), f"{person_type.capitalize()} attendance recorded successfully")
     except Exception as e:

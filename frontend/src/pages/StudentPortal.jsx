@@ -132,16 +132,30 @@ export default function StudentPortal() {
                     <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-200">
                       {new Date(record.date).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
                     </td>
-                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                      {record.check_in ? formatTime(record.check_in) : '--:--'}
+                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300 font-mono text-xs">
+                      {record.check_in_time ? formatTime(record.check_in_time) : (record.check_in ? formatTime(record.check_in) : '--:--')}
                     </td>
-                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                      {record.check_out ? formatTime(record.check_out) : '--:--'}
+                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300 font-mono text-xs">
+                      {record.check_out_time ? formatTime(record.check_out_time) : (record.check_out ? formatTime(record.check_out) : '--:--')}
                     </td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        {record.method === 'face' ? 'Face AI' : record.method === 'fingerprint' ? 'Biometrics' : 'Manual'}
-                      </span>
+                      {record.status?.toLowerCase() === 'absent' ? (
+                        <span className="text-slate-400 text-xs">—</span>
+                      ) : (
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold ${
+                          (record.method === 'face' || record.confidence > 0 || String(record.method || '').toLowerCase().includes('face') || String(record.method || '').toLowerCase().includes('ai'))
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/50 dark:border-emerald-800/40'
+                            : (record.method === 'fingerprint' || String(record.method || '').toLowerCase().includes('touch') || String(record.method || '').toLowerCase().includes('bio'))
+                            ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200/50 dark:border-indigo-800/40'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                        }`}>
+                          {(record.method === 'face' || record.confidence > 0 || String(record.method || '').toLowerCase().includes('face') || String(record.method || '').toLowerCase().includes('ai'))
+                            ? '✨ Face AI'
+                            : (record.method === 'fingerprint' || String(record.method || '').toLowerCase().includes('touch') || String(record.method || '').toLowerCase().includes('bio'))
+                            ? '👆 Biometrics'
+                            : 'Manual'}
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <StatusBadge status={record.status} />

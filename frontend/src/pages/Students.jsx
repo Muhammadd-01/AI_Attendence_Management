@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, Search, Camera, Edit, Trash2, Eye, Filter, X, GraduationCap, ImagePlus, Loader2, Fingerprint, Plus } from 'lucide-react';
+import { UserPlus, Search, Camera, Edit, Trash2, Eye, Filter, X, GraduationCap, ImagePlus, Loader2, Fingerprint, Plus, Power } from 'lucide-react';
 import Modal from '../components/Modal';
 import StatusBadge from '../components/StatusBadge';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -8,6 +8,7 @@ import FaceCapture from '../components/FaceCapture';
 import BiometricModal from '../components/BiometricModal';
 import toast from 'react-hot-toast';
 import { useDebounce } from '../hooks/useDebounce';
+import { deleteStudentFaces } from '../services/supabase';
 import { getStoredClasses, saveNewClass, getStoredDepartments, saveNewDepartment } from '../utils/academicData';
 import { useApp } from '../context/AppContext';
 
@@ -58,17 +59,13 @@ export default function Students() {
     }
   };
 
+  const [viewStudent, setViewStudent] = useState(null);
+  
   const getNextStudentId = (list) => {
-    let maxNum = 0;
-    list.forEach(s => {
-      const idStr = s.student_id || s.id || '';
-      const match = idStr.match(/(\d+)/);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (num > maxNum) maxNum = num;
-      }
-    });
-    return `ST${String(maxNum + 1).padStart(3, '0')}`;
+    // Generate a strictly unique ID based on a random 4-digit number to prevent reusing 
+    // IDs of deleted students, which causes history caching and image mixing.
+    const uniqueNum = Math.floor(1000 + Math.random() * 9000);
+    return `ST${uniqueNum}`;
   };
 
   const { user } = useApp();
@@ -207,20 +204,35 @@ export default function Students() {
     }
   };
 
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const handleDelete = async () => {
+    if (!showDelete) return;
+    setIsDeleting(true);
     try {
-      await new Promise(r => setTimeout(r, 650));
-      const res = await fetch(`/api/students/${showDelete.student_id}`, { method: 'DELETE' });
+      const studentId = showDelete.student_id;
+      const studentDocId = showDelete.id;
+
+      // 1. Permanently delete all photos from Supabase Storage asynchronously (fire and forget for speed)
+      deleteStudentFaces(studentId, 'student-faces').catch(console.error);
+      deleteStudentFaces(studentDocId, 'student-faces').catch(console.error);
+      deleteStudentFaces(studentId, 'faces').catch(console.error);
+      deleteStudentFaces(studentDocId, 'faces').catch(console.error);
+
+      // 2. Cascade delete from backend database, attendance logs, and local AI dataset
+      const res = await fetch(`/api/students/${studentId}`, { method: 'DELETE' });
       const json = await res.json();
       if (json.success) {
-        setStudents(students.filter(s => s.student_id !== showDelete.student_id));
+        setStudents(students.filter(s => s.student_id !== studentId && s.id !== studentDocId));
         setShowDelete(null);
-        toast.success('Student removed completely');
+        toast.success('Student, all photos & attendance records removed completely');
       } else {
         toast.error('Failed to delete student');
       }
     } catch (err) {
       toast.error('Network error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -364,7 +376,7 @@ export default function Students() {
               <motion.div 
                 key={s.student_id} 
                 variants={row} 
-                className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all flex flex-col"
+                className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all flex flex-col cursor-pointer" onClick={() => setViewStudent(s)}
               >
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex items-center gap-3">
@@ -391,7 +403,7 @@ export default function Students() {
                   
                   <div className="flex flex-col items-end gap-1">
                     <button
-                      onClick={() => handleToggleStatus(s)}
+                      onClick={(e) => { e.stopPropagation(); handleToggleStatus(s); }}
                       disabled={statusUpdatingId === s.student_id}
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider transition-all hover:scale-105 ${
                         s.status === 'inactive' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200' : 'bg-primary-50 dark:bg-primary-950/50 text-primary-600 dark:text-primary-400 hover:bg-primary-100'
@@ -442,7 +454,7 @@ export default function Students() {
                   {/* Actions */}
                   <div className="flex items-center justify-end gap-1.5 pt-3 border-t border-slate-100 dark:border-slate-800">
                     <button 
-                      onClick={() => setShowCapture(s)} 
+                      onClick={(e) => { e.stopPropagation(); setShowCapture(s); }} 
                       className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-xl transition-colors text-xs font-semibold ${
                         s.is_trained || (s.encodings_count > 0)
                           ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100'
@@ -453,7 +465,7 @@ export default function Students() {
                       <Camera className="w-3.5 h-3.5" /> Faces
                     </button>
                     <button 
-                      onClick={() => setShowBiometric(s)} 
+                      onClick={(e) => { e.stopPropagation(); setShowBiometric(s); }} 
                       className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-xl transition-colors text-xs font-semibold ${
                         s.biometric_enrolled 
                           ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100' 
@@ -463,8 +475,20 @@ export default function Students() {
                     >
                       <Fingerprint className="w-3.5 h-3.5" /> {s.biometric_enrolled ? 'Touch ID ✓' : 'Fingerprint'}
                     </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleToggleStatus(s); }}
+                      disabled={statusUpdatingId === s.student_id}
+                      className={`p-2 rounded-xl transition-colors ${
+                        s.status === 'inactive' 
+                          ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40' 
+                          : 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                      }`}
+                      title={s.status === 'inactive' ? 'Activate Student' : 'Deactivate Student'}
+                    >
+                      {statusUpdatingId === s.student_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />}
+                    </button>
                     <button 
-                      onClick={() => handleEditClick(s)} 
+                      onClick={(e) => { e.stopPropagation(); handleEdit(s); }} 
                       className="p-2 text-slate-500 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-slate-800 rounded-xl transition-colors" 
                       title="Edit Student"
                     >
@@ -472,7 +496,7 @@ export default function Students() {
                     </button>
                     {isPrincipal && (
                       <button 
-                        onClick={() => setShowDelete(s)} 
+                        onClick={(e) => { e.stopPropagation(); setShowDelete(s); }} 
                         className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-slate-800 rounded-xl transition-colors" 
                         title="Delete Student"
                       >
@@ -566,8 +590,65 @@ export default function Students() {
       )}
 
       <ConfirmDialog isOpen={!!showDelete} onClose={() => setShowDelete(null)} onConfirm={handleDelete}
-        title="Deactivate Student?" message={`Are you sure you want to deactivate ${showDelete?.name}? They will no longer appear in attendance sessions.`}
-        confirmLabel="Deactivate" danger />
+        title="Permanently Delete Student?" message={`Are you sure you want to permanently delete ${showDelete?.name}? They will no longer appear in attendance sessions.`}
+        confirmLabel="Delete Forever" danger isLoading={isDeleting} />
+
+      {/* Student Details Modal */}
+      <Modal isOpen={!!viewStudent} onClose={() => setViewStudent(null)} title="Student Profile" size="md">
+        {viewStudent && (
+          <div className="flex flex-col gap-6">
+            <div className="flex items-center gap-4">
+              {viewStudent.avatar_url ? (
+                <img src={viewStudent.avatar_url} alt="" className="w-20 h-20 rounded-2xl object-cover border-2 border-emerald-400" />
+              ) : (
+                <div className="w-20 h-20 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center font-bold text-2xl">
+                  {(viewStudent.name || 'S').split(' ').map(n => n[0]).join('').slice(0, 2)}
+                </div>
+              )}
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white">{viewStudent.name}</h3>
+                <p className="text-sm text-slate-500 font-mono">{viewStudent.student_id}</p>
+                <div className="mt-2">
+                  <StatusBadge status={viewStudent.status} />
+                </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Email</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">{viewStudent.email || 'N/A'}</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Class / Course</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{viewStudent.class_name} • {viewStudent.course}</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Face AI Model</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                  {viewStudent.is_trained || viewStudent.encodings_count > 0 ? <span className="text-emerald-500">Trained ✓</span> : <span className="text-amber-500">Not Trained</span>}
+                  <span className="text-xs text-slate-400">({viewStudent.face_count || 0} imgs)</span>
+                </p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Biometric ID</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  {viewStudent.biometric_enrolled ? <span className="text-emerald-500">Enrolled ✓</span> : <span className="text-slate-400">None</span>}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <button 
+                onClick={() => setViewStudent(null)}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </motion.div>
   );
 }

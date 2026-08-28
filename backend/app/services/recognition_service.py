@@ -117,9 +117,10 @@ class RecognitionService:
                     student_name=name, 
                     confidence=confidence, 
                     session_id=self.active_session_id,
-                    person_type=person_type
+                    person_type=person_type,
+                    method='face'
                 )
-                logger.info(f"Unified AI marked {person_type} attendance for {name} ({student_id})")
+                logger.info(f"Unified AI marked {person_type} attendance for {name} ({student_id}) via Face AI")
         except Exception as e:
             logger.error(f"Error recording unified attendance callback: {e}")
 

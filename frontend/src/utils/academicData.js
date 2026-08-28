@@ -4,16 +4,17 @@
  */
 
 export function getStoredClasses() {
+  const DEFAULT_CLASSES = ['CS-401', 'CS-402', 'SE-301', 'BBA-101'];
   try {
     const saved = localStorage.getItem('ai_attendance_classes_custom');
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
   } catch (e) {
     // fallback
   }
-  return [];
+  return DEFAULT_CLASSES;
 }
 
 export function saveNewClass(newClassName) {
@@ -35,16 +36,17 @@ export function removeClass(className) {
 }
 
 export function getStoredDepartments() {
+  const DEFAULT_DEPTS = ['Computer Science', 'Software Engineering', 'Artificial Intelligence', 'Business Administration'];
   try {
     const saved = localStorage.getItem('ai_attendance_departments_custom');
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
   } catch (e) {
     // fallback
   }
-  return [];
+  return DEFAULT_DEPTS;
 }
 
 export function saveNewDepartment(newDeptName) {

@@ -2,7 +2,7 @@ from app.database.connection import get_db
 import datetime
 from app.config import Config
 
-def check_in(student_id, student_name, confidence, session_id=None, person_type=None):
+def check_in(student_id, student_name, confidence, session_id=None, person_type=None, method='face'):
     db = get_db()
     now = datetime.datetime.now()
     date_str = now.strftime('%Y-%m-%d')
@@ -18,24 +18,27 @@ def check_in(student_id, student_name, confidence, session_id=None, person_type=
     # Determine if late
     status = 'Present'
     if session_id:
-        session_doc = db.collection('attendance_sessions').document(session_id).get()
-        if session_doc.exists:
-            session_data = session_doc.to_dict()
-            start_time = session_data.get('start_time')
-            if start_time:
-                if isinstance(start_time, str):
-                    try:
-                        start_time = datetime.datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-                    except ValueError:
-                        pass
-                
-                if isinstance(start_time, datetime.datetime):
-                    if start_time.tzinfo is not None:
-                        start_time = start_time.replace(tzinfo=None)
-                        
-                    time_diff = now - start_time
-                    if time_diff.total_seconds() > (Config.LATE_THRESHOLD_MINUTES * 60):
-                        status = 'Late'
+        try:
+            session_doc = db.collection('attendance_sessions').document(session_id).get()
+            if session_doc.exists:
+                session_data = session_doc.to_dict()
+                start_time = session_data.get('start_time')
+                if start_time:
+                    if isinstance(start_time, str):
+                        try:
+                            start_time = datetime.datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                        except ValueError:
+                            pass
+                    
+                    if isinstance(start_time, datetime.datetime):
+                        if start_time.tzinfo is not None:
+                            start_time = start_time.replace(tzinfo=None)
+                            
+                        time_diff = now - start_time
+                        if time_diff.total_seconds() > (Config.LATE_THRESHOLD_MINUTES * 60):
+                            status = 'Late'
+        except Exception:
+            pass
 
     data = {
         'student_id': student_id,
@@ -44,6 +47,7 @@ def check_in(student_id, student_name, confidence, session_id=None, person_type=
         'role': person_type,
         'date': date_str,
         'status': status,
+        'method': method or 'face',
         'check_in_time': time_str,
         'check_out_time': None,
         'duration_minutes': None,
@@ -54,12 +58,24 @@ def check_in(student_id, student_name, confidence, session_id=None, person_type=
         'updated_at': now
     }
     
-    doc_ref = db.collection('attendance').document()
-    doc_ref.set(data)
-    
-    result = data.copy()
-    result['id'] = doc_ref.id
-    return result
+    # Check if a record exists for this person today (e.g. Absent placeholder or duplicate)
+    existing_docs = list(db.collection('attendance').where('student_id', '==', student_id).where('date', '==', date_str).stream())
+    if existing_docs:
+        doc = existing_docs[0]
+        old_data = doc.to_dict()
+        if old_data.get('check_out_time'):
+            data['check_out_time'] = old_data.get('check_out_time')
+            data['duration_minutes'] = old_data.get('duration_minutes')
+        doc.reference.update(data)
+        result = data.copy()
+        result['id'] = doc.id
+        return result
+    else:
+        doc_ref = db.collection('attendance').document()
+        doc_ref.set(data)
+        result = data.copy()
+        result['id'] = doc_ref.id
+        return result
 
 def check_out(student_id, date=None):
     db = get_db()
@@ -127,8 +143,8 @@ def get_attendance_by_date(date_str):
     db = get_db()
     query = db.collection('attendance').where('date', '==', date_str)
     docs = query.stream()
-    results = []
     seen = {}
+    results = []
     
     for doc in docs:
         data = doc.to_dict()
@@ -136,11 +152,21 @@ def get_attendance_by_date(date_str):
         if 'person_type' not in data:
             data['person_type'] = 'teacher' if str(data.get('student_id', '')).startswith('TCH') else 'student'
             
-        # Deduplicate: only keep the most recently updated/created document per person per day
         s_id = data.get('student_id')
         if s_id:
-            if s_id not in seen or str(data.get('updated_at', data.get('created_at', ''))) > str(seen[s_id].get('updated_at', seen[s_id].get('created_at', ''))):
+            if s_id not in seen:
                 seen[s_id] = data
+            else:
+                existing_st = str(seen[s_id].get('status', '')).lower()
+                new_st = str(data.get('status', '')).lower()
+                # If existing is Absent and new is Present/Late, replace it!
+                if existing_st == 'absent' and new_st in ['present', 'late', 'half day', 'on time']:
+                    seen[s_id] = data
+                # If new is Absent and existing is Present/Late, KEEP the Present/Late!
+                elif new_st == 'absent' and existing_st in ['present', 'late', 'half day', 'on time']:
+                    pass
+                elif str(data.get('updated_at', data.get('created_at', ''))) > str(seen[s_id].get('updated_at', seen[s_id].get('created_at', ''))):
+                    seen[s_id] = data
         else:
             results.append(data)
             
@@ -180,15 +206,42 @@ def get_attendance_history(page=1, per_page=20, student_id=None, date=None, stat
         
     docs = list(query.stream())
     
-    results = []
+    # Deduplicate by (student_id, date) preferring Present > Late > Half Day > Absent
+    # Keep track of the "best" doc per student per date
+    dedup = {}
+    
+    def status_weight(st):
+        s = str(st).lower()
+        if s == 'present': return 4
+        if s == 'late': return 3
+        if s == 'half day': return 2
+        if s == 'absent': return 1
+        return 0
+
     for doc in docs:
         data = doc.to_dict()
         data['id'] = doc.id
         if 'person_type' not in data:
             data['person_type'] = 'teacher' if str(data.get('student_id', '')).startswith('TCH') else 'student'
-        results.append(data)
+            
+        sid = data.get('student_id')
+        d = data.get('date')
+        key = f"{sid}_{d}"
         
-    results.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
+        current_weight = status_weight(data.get('status', ''))
+        
+        if key not in dedup:
+            dedup[key] = data
+        else:
+            existing_weight = status_weight(dedup[key].get('status', ''))
+            # Prefer higher status weight, or if equal, prefer the one with a check-in time
+            if current_weight > existing_weight:
+                dedup[key] = data
+            elif current_weight == existing_weight and data.get('check_in_time') and not dedup[key].get('check_in_time'):
+                dedup[key] = data
+                
+    results = list(dedup.values())
+    results.sort(key=lambda x: str(x.get('created_at', str(x.get('date', '')))), reverse=True)
     
     if person_type and person_type != 'all':
         results = [r for r in results if r.get('person_type') == person_type or (person_type == 'teacher' and str(r.get('student_id','')).startswith('TCH')) or (person_type == 'student' and not str(r.get('student_id','')).startswith('TCH'))]
@@ -213,8 +266,12 @@ def get_attendance_history(page=1, per_page=20, student_id=None, date=None, stat
 def is_checked_in_today(student_id):
     db = get_db()
     date_str = datetime.datetime.now().strftime('%Y-%m-%d')
-    query = db.collection('attendance').where('student_id', '==', student_id).where('date', '==', date_str).limit(1)
-    return len(list(query.stream())) > 0
+    docs = list(db.collection('attendance').where('student_id', '==', student_id).where('date', '==', date_str).stream())
+    for d in docs:
+        st = str(d.to_dict().get('status', '')).lower()
+        if st in ['present', 'late', 'half day', 'on time']:
+            return True
+    return False
 
 def is_checked_out_today(student_id):
     db = get_db()
@@ -233,12 +290,28 @@ def mark_absent(student_id, student_name, date_str=None, session_id=None, person
     now = datetime.datetime.now()
     date_str = date_str or now.strftime('%Y-%m-%d')
     
+    # Never mark absent if the person is already marked Present / Late today
+    docs = list(db.collection('attendance').where('student_id', '==', student_id).where('date', '==', date_str).stream())
+    if docs:
+        for d in docs:
+            st = str(d.to_dict().get('status', '')).lower()
+            if st in ['present', 'late', 'half day', 'on time']:
+                res = d.to_dict()
+                res['id'] = d.id
+                return res
+        # If an Absent record already exists, just return it
+        res = docs[0].to_dict()
+        res['id'] = docs[0].id
+        return res
+    
     data = {
         'student_id': student_id,
         'student_name': student_name,
         'person_type': person_type,
+        'role': person_type,
         'date': date_str,
         'status': 'Absent',
+        'method': 'system',
         'check_in_time': None,
         'check_out_time': None,
         'duration_minutes': 0,

@@ -132,6 +132,7 @@ export default function StudentKiosk() {
           student_id: person.id,
           student_name: person.name,
           person_type: 'teacher',
+          method: 'face',
           confidence: (person.confidence || 95) / 100
         });
         record = res?.data || res;

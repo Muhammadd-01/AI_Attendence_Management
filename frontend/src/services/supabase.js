@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://rsasnwxsaohotxcqtesq.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJzYXNud3hzYW9ob3R4Y3F0ZXNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2NTUzNDMsImV4cCI6MjEwMzIzMTM0M30.AEsV0UxzEes28gTdZZqiAlrGGknVTubLdxlFXFbVjQM';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -30,7 +30,7 @@ export async function uploadFaceImage(personId, file, index, bucket = 'student-f
         const { data: urlData } = supabase.storage
           .from(b)
           .getPublicUrl(filePath);
-        return urlData.publicUrl;
+        return `${urlData.publicUrl}?t=${Date.now()}`;
       } else if (error) {
         lastError = error;
       }
@@ -63,7 +63,7 @@ export async function getStudentFaces(personId, bucket = 'student-faces') {
           const { data: urlData } = supabase.storage
             .from(b)
             .getPublicUrl(`${personId}/${file.name}`);
-          return urlData.publicUrl;
+          return `${urlData.publicUrl}?t=${Date.now()}`;
         });
       }
     } catch (e) {}
@@ -73,17 +73,23 @@ export async function getStudentFaces(personId, bucket = 'student-faces') {
 }
 
 /**
- * Delete all face images for a person
+ * Delete all face images for a person across all buckets
  */
 export async function deleteStudentFaces(personId, bucket = 'student-faces') {
-  try {
-    const { data: files } = await supabase.storage
-      .from(bucket)
-      .list(personId);
+  if (!personId) return;
+  const bucketsToTry = Array.from(new Set([bucket, 'teacher-faces', 'student-faces', 'faces']));
+  for (const b of bucketsToTry) {
+    try {
+      const { data: files, error } = await supabase.storage
+        .from(b)
+        .list(String(personId), { limit: 200 });
 
-    if (files && files.length > 0) {
-      const filePaths = files.map(f => `${personId}/${f.name}`);
-      await supabase.storage.from(bucket).remove(filePaths);
+      if (!error && Array.isArray(files) && files.length > 0) {
+        const filePaths = files.map(f => `${personId}/${f.name}`);
+        await supabase.storage.from(b).remove(filePaths);
+      }
+    } catch (e) {
+      console.warn(`Error deleting faces from bucket ${b}:`, e);
     }
-  } catch (e) {}
+  }
 }

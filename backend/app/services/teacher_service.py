@@ -118,50 +118,140 @@ def update_teacher(teacher_id, data):
     doc_ref.update(update_data)
     return get_teacher(teacher_id)
 
+def delete_supabase_teacher_faces(person_id):
+    """Deletes face images from Supabase Storage via REST API for all buckets"""
+    if not person_id:
+        return
+    supabase_url = 'https://rsasnwxsaohotxcqtesq.supabase.co'
+    supabase_key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJzYXNud3hzYW9ob3R4Y3F0ZXNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2NTUzNDMsImV4cCI6MjEwMzIzMTM0M30.AEsV0UxzEes28gTdZZqiAlrGGknVTubLdxlFXFbVjQM'
+    buckets = ['teacher-faces', 'student-faces', 'faces']
+    import urllib.request
+    import json
+    
+    headers = {
+        'apikey': supabase_key,
+        'Authorization': f'Bearer {supabase_key}',
+        'Content-Type': 'application/json'
+    }
+    
+    for bucket in buckets:
+        try:
+            list_url = f"{supabase_url}/storage/v1/object/list/{bucket}"
+            list_payload = json.dumps({"prefix": str(person_id), "limit": 200}).encode('utf-8')
+            req = urllib.request.Request(list_url, data=list_payload, headers=headers, method='POST')
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                files = json.loads(resp.read().decode('utf-8'))
+                
+            if isinstance(files, list) and len(files) > 0:
+                file_paths = [f"{person_id}/{f['name']}" for f in files if isinstance(f, dict) and 'name' in f]
+                if file_paths:
+                    del_url = f"{supabase_url}/storage/v1/object/{bucket}"
+                    del_payload = json.dumps({"prefixes": file_paths}).encode('utf-8')
+                    del_req = urllib.request.Request(del_url, data=del_payload, headers=headers, method='DELETE')
+                    with urllib.request.urlopen(del_req, timeout=10) as del_resp:
+                        pass
+                    logger.info(f"Deleted {len(file_paths)} images from Supabase bucket {bucket} for teacher {person_id}")
+        except Exception as e:
+            logger.warning(f"Error cleaning up Supabase storage bucket {bucket} for {person_id}: {e}")
+
 def delete_teacher(teacher_id):
     db = get_db()
     
-    # 1. Delete teacher's encodings subcollection
-    try:
-        encodings_ref = db.collection('teachers').document(teacher_id).collection('encodings')
-        for doc in encodings_ref.stream():
-            doc.reference.delete()
-    except Exception:
-        pass
-        
-    # 2. Delete teacher document
+    # Resolve all possible identifiers for this faculty member
+    doc_id = str(teacher_id)
+    real_teacher_id = str(teacher_id)
+    teacher_name = None
+    
+    # Try finding by teacher_id field first
     docs = list(db.collection('teachers').where('teacher_id', '==', teacher_id).limit(1).stream())
     if docs:
-        docs[0].reference.delete()
+        doc_data = docs[0].to_dict()
+        doc_id = docs[0].id
+        real_teacher_id = doc_data.get('teacher_id', teacher_id)
+        teacher_name = doc_data.get('name')
+        try:
+            docs[0].reference.delete()
+        except Exception:
+            pass
     else:
-        db.collection('teachers').document(teacher_id).delete()
-        
-    # 3. Cascade delete all attendance records for this teacher
-    try:
-        att_docs = db.collection('attendance').where('student_id', '==', teacher_id).stream()
-        for doc in att_docs:
-            doc.reference.delete()
-    except Exception as e:
-        pass
-        
-    # 4. Delete local dataset images so old faces don't mix if ID is reused
-    import shutil
-    try:
-        dataset_path = get_dataset_path() / str(teacher_id)
-        if dataset_path.exists():
-            shutil.rmtree(dataset_path)
-    except Exception:
-        pass
-        
-    # 4. Sync AI models so the deleted teacher is instantly forgotten from memory
-    from app.services import recognition_service
-    try:
-        if recognition_service._recognition_service and recognition_service._recognition_service.recognizer:
-            recognition_service._recognition_service.recognizer.remove_student(teacher_id)
-        recognition_service.sync_all()
-    except Exception as e:
-        pass
-        
+        # Try finding by document id
+        d = db.collection('teachers').document(teacher_id).get()
+        if d.exists:
+            doc_data = d.to_dict()
+            doc_id = d.id
+            real_teacher_id = doc_data.get('teacher_id', teacher_id)
+            teacher_name = doc_data.get('name')
+            try:
+                d.reference.delete()
+            except Exception:
+                pass
+
+    ids_to_clean = set([doc_id, real_teacher_id, str(teacher_id)])
+
+    def _background_cleanup():
+        db = get_db()
+        # 1. Delete teacher's encodings subcollections for both doc_id and real_teacher_id
+        for tid in ids_to_clean:
+            try:
+                enc_docs = db.collection('teachers').document(tid).collection('encodings').stream()
+                for edoc in enc_docs:
+                    edoc.reference.delete()
+            except Exception:
+                pass
+            try:
+                db.collection('teachers').document(tid).delete()
+            except Exception:
+                pass
+
+        # 2. Cascade delete ALL attendance records for this teacher
+        for tid in ids_to_clean:
+            try:
+                att_docs = db.collection('attendance').where('student_id', '==', tid).stream()
+                for adoc in att_docs:
+                    adoc.reference.delete()
+            except Exception as e:
+                pass
+                
+        if teacher_name:
+            try:
+                att_name_docs = db.collection('attendance').where('student_name', '==', teacher_name).stream()
+                for adoc in att_name_docs:
+                    adata = adoc.to_dict()
+                    if adata.get('person_type') == 'teacher' or adata.get('role') == 'teacher' or str(adata.get('student_id', '')).startswith('TCH'):
+                        adoc.reference.delete()
+            except Exception:
+                pass
+
+        # 3. Permanently delete all photos from Supabase Storage
+        for tid in ids_to_clean:
+            delete_supabase_teacher_faces(tid)
+
+        # 4. Delete local dataset images so old faces don't mix if ID is reused
+        import shutil
+        for tid in ids_to_clean:
+            try:
+                dataset_path = get_dataset_path() / str(tid)
+                if dataset_path.exists():
+                    shutil.rmtree(dataset_path)
+            except Exception:
+                pass
+            
+        # 5. Sync AI models so the deleted teacher is instantly forgotten from memory
+        from app.services import recognition_service
+        for tid in ids_to_clean:
+            try:
+                if recognition_service._recognition_service and recognition_service._recognition_service.recognizer:
+                    recognition_service._recognition_service.recognizer.remove_student(tid)
+            except Exception:
+                pass
+                
+        try:
+            recognition_service.sync_all()
+        except Exception as e:
+            pass
+
+    import threading
+    threading.Thread(target=_background_cleanup).start()
     return True
 
 def capture_teacher_face(teacher_id, image_data=None):

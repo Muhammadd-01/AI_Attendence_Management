@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Users, UserPlus, Search, Trash2, Mail, Lock, Eye, EyeOff, 
+  Users, UserPlus, Search, Trash2, Power, Mail, Lock, Eye, EyeOff, 
   Copy, CheckCircle2, Shield, UserCheck, AlertCircle, RefreshCw,
   Key, Sparkles, Filter, MoreVertical, Loader2, Camera, Fingerprint, Plus,
   DollarSign, Calendar, TrendingDown, Edit3, Clock, Save, Banknote, Coins
@@ -12,6 +12,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import FaceCapture from '../components/FaceCapture';
 import BiometricModal from '../components/BiometricModal';
 import { useDebounce } from '../hooks/useDebounce';
+import { deleteStudentFaces } from '../services/supabase';
 import { getStoredClasses, saveNewClass, getStoredDepartments, saveNewDepartment } from '../utils/academicData';
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.04 } } };
@@ -66,6 +67,7 @@ export default function Teachers() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [viewTeacher, setViewTeacher] = useState(null);
 
   const debouncedSearch = useDebounce(search, 300);
 
@@ -91,16 +93,10 @@ export default function Teachers() {
   };
 
   const getNextTeacherId = (list) => {
-    let maxNum = 0;
-    list.forEach(t => {
-      const idStr = t.teacher_id || t.id || '';
-      const match = idStr.match(/(\d+)/);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (num > maxNum) maxNum = num;
-      }
-    });
-    return `TCH${String(maxNum + 1).padStart(3, '0')}`;
+    // Generate a strictly unique ID based on a random 4-digit number to prevent reusing 
+    // IDs of deleted teachers, which causes history caching and image mixing.
+    const uniqueNum = Math.floor(1000 + Math.random() * 9000);
+    return `TCH${uniqueNum}`;
   };
 
   const generateRandomPassword = () => {
@@ -300,12 +296,22 @@ export default function Teachers() {
     if (!showDeleteDialog) return;
     setIsDeleting(true);
     try {
-      await new Promise(r => setTimeout(r, 650));
-      const res = await fetch(`/api/teachers/${showDeleteDialog.id}`, { method: 'DELETE' });
+      const teacherDocId = showDeleteDialog.id;
+      const teacherBusinessId = showDeleteDialog.teacher_id || showDeleteDialog.id;
+
+      // 1. Permanently delete all photos from Supabase Storage asynchronously (fire and forget for speed)
+      deleteStudentFaces(teacherBusinessId, 'teacher-faces').catch(console.error);
+      deleteStudentFaces(teacherDocId, 'teacher-faces').catch(console.error);
+      deleteStudentFaces(teacherBusinessId, 'student-faces').catch(console.error);
+      deleteStudentFaces(teacherDocId, 'student-faces').catch(console.error);
+
+      // 2. Cascade delete teacher, encodings subcollections, attendance logs, and AI cache from backend
+      const res = await fetch(`/api/teachers/${teacherDocId}`, { method: 'DELETE' });
       const json = await res.json();
       if (json.success || json.status === 'success') {
-        setTeachers(prev => prev.filter(t => t.id !== showDeleteDialog.id));
-        toast.success('Teacher removed from system');
+        setTeachers(prev => prev.filter(t => t.id !== teacherDocId && t.teacher_id !== teacherBusinessId));
+        setShowDeleteDialog(null);
+        toast.success('Faculty member, all photos & attendance records permanently deleted!');
       } else {
         toast.error(json.message || 'Failed to delete teacher');
       }
@@ -451,7 +457,7 @@ export default function Teachers() {
               <motion.div
                 key={t.id}
                 variants={item}
-                className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-100 dark:border-slate-700/60 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-100 dark:border-slate-700/60 shadow-sm hover:shadow-md transition-all flex flex-col justify-between cursor-pointer" onClick={() => setViewTeacher(t)}
               >
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex items-center gap-3">
@@ -474,7 +480,7 @@ export default function Teachers() {
                       <p className="font-semibold text-slate-900 dark:text-slate-100 leading-tight">{t.name}</p>
                       <p className="text-xs font-mono text-slate-400 mt-0.5">{t.teacher_id || t.id}</p>
                       <button
-                        onClick={() => handleToggleStatus(t)}
+                        onClick={(e) => { e.stopPropagation(); handleToggleStatus(t); }}
                         disabled={statusUpdatingId === t.id}
                         className={`inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider transition-all hover:scale-105 ${
                           t.status === 'inactive' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-950/50'
@@ -487,19 +493,30 @@ export default function Teachers() {
                           <span className={`w-1.5 h-1.5 rounded-full ${t.status === 'inactive' ? 'bg-slate-400' : 'bg-emerald-500'}`} />
                         )}
                         {statusUpdatingId === t.id ? 'Updating...' : t.status === 'inactive' ? 'Inactive' : 'Active'}
-                      </button>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button
-                      onClick={() => handleOpenEdit(t)}
-                      className="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                      title="Edit Teacher Details & Salary"
+                      onClick={(e) => { e.stopPropagation(); handleToggleStatus(t); }}
+                      disabled={statusUpdatingId === t.id}
+                      className={`p-1.5 rounded-lg transition-colors ${
+                        t.status === 'inactive' 
+                          ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40' 
+                          : 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                      }`}
+                      title={t.status === 'inactive' ? 'Activate Faculty' : 'Deactivate Faculty'}
+                    >
+                      {statusUpdatingId === t.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleOpenEdit(t); }}
+                      className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                      title="Edit Teacher"
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => setShowCapture(t)}
+                      onClick={(e) => { e.stopPropagation(); setShowCapture(t); }}
                       className={`p-1.5 rounded-lg transition-colors ${
                         t.is_trained || (t.encodings_count > 0)
                           ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40'
@@ -510,7 +527,7 @@ export default function Teachers() {
                       <Camera className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => setShowBiometric(t)}
+                      onClick={(e) => { e.stopPropagation(); setShowBiometric(t); }}
                       className={`p-1.5 rounded-lg transition-colors ${
                         t.biometric_enrolled 
                           ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40' 
@@ -521,7 +538,7 @@ export default function Teachers() {
                       <Fingerprint className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => setShowDeleteDialog(t)}
+                      onClick={(e) => { e.stopPropagation(); setShowDeleteDialog(t); }}
                       className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
                       title="Remove Teacher"
                     >
@@ -805,9 +822,78 @@ export default function Teachers() {
         title="Remove Faculty Member"
         message={`Are you sure you want to remove ${showDeleteDialog?.name}? They will lose access to the Attendance portal.`}
         confirmLabel="Remove Faculty"
-        danger={true}
+        danger
         isLoading={isDeleting}
       />
+
+      {/* Teacher Details Modal */}
+      <Modal isOpen={!!viewTeacher} onClose={() => setViewTeacher(null)} title="Faculty Profile" size="md">
+        {viewTeacher && (
+          <div className="flex flex-col gap-6">
+            <div className="flex items-center gap-4">
+              {viewTeacher.avatar_url ? (
+                <img src={viewTeacher.avatar_url} alt="" className="w-20 h-20 rounded-2xl object-cover border-2 border-emerald-400" />
+              ) : (
+                <div className="w-20 h-20 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center font-bold text-2xl">
+                  {(viewTeacher.name || 'T').split(' ').map(n => n[0]).join('').slice(0, 2)}
+                </div>
+              )}
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">{viewTeacher.name}</h3>
+                <p className="text-sm text-slate-500 font-mono">{viewTeacher.teacher_id || viewTeacher.id}</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
+                    viewTeacher.status === 'inactive' ? 'bg-slate-100 text-slate-500' : 'bg-emerald-50 text-emerald-600'
+                  }`}>
+                    {viewTeacher.status || 'active'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Email</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">{viewTeacher.email || 'N/A'}</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Department</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">{viewTeacher.department || 'N/A'}</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Assigned Class</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">{viewTeacher.assigned_class || 'N/A'}</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Salary</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">${parseFloat(viewTeacher.salary || 0).toLocaleString()}</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Face AI Model</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                  {viewTeacher.is_trained || viewTeacher.encodings_count > 0 ? <span className="text-emerald-500">Trained ✓</span> : <span className="text-amber-500">Not Trained</span>}
+                  <span className="text-xs text-slate-400">({viewTeacher.face_count || 0} imgs)</span>
+                </p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Biometric ID</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  {viewTeacher.biometric_enrolled ? <span className="text-emerald-500">Enrolled ✓</span> : <span className="text-slate-400">None</span>}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <button 
+                onClick={() => setViewTeacher(null)}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Face Capture Modal */}
       {showCapture && (
