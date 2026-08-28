@@ -252,10 +252,10 @@ def get_encodings(student_id):
 
 def get_all_encodings():
     db = get_db()
-    active_students = get_active_students()
+    all_students = get_all_students()
     
     result = {}
-    for student in active_students:
+    for student in all_students:
         student_id = student['student_id']
         encodings = get_encodings(student_id)
         if encodings:
@@ -268,7 +268,7 @@ def get_all_encodings():
             
     # Also load active faculty/teachers encodings
     try:
-        teacher_docs = list(db.collection('teachers').where('status', '==', 'active').stream())
+        teacher_docs = list(db.collection('teachers').stream())
         for t_doc in teacher_docs:
             t_data = t_doc.to_dict()
             t_id = t_data.get('teacher_id') or t_doc.id

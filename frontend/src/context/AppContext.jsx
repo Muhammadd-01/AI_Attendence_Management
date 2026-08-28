@@ -17,11 +17,22 @@ export const AppProvider = ({ children }) => {
   
   // Auth State (mock)
   const [user, setUser] = useState(() => {
+    let loadedUser = null;
     const local = localStorage.getItem('auth_user');
-    if (local) return JSON.parse(local);
-    const session = sessionStorage.getItem('auth_user');
-    if (session) return JSON.parse(session);
-    return null;
+    if (local) loadedUser = JSON.parse(local);
+    else {
+      const session = sessionStorage.getItem('auth_user');
+      if (session) loadedUser = JSON.parse(session);
+    }
+    
+    // Force name update if cached local storage has the old name
+    if (loadedUser && loadedUser.role === 'principal' && loadedUser.name === 'Dr. Abdullah Khan') {
+      loadedUser.name = 'Hassan Javed';
+      if (local) localStorage.setItem('auth_user', JSON.stringify(loadedUser));
+      else sessionStorage.setItem('auth_user', JSON.stringify(loadedUser));
+    }
+    
+    return loadedUser;
   });
 
   const login = async (email, password, remember = true) => {

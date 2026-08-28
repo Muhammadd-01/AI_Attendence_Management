@@ -26,6 +26,7 @@ export default function Teachers() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(null);
+  const [showStatusToggle, setShowStatusToggle] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showCapture, setShowCapture] = useState(null);
   const [showBiometric, setShowBiometric] = useState(null);
@@ -480,7 +481,7 @@ export default function Teachers() {
                       <p className="font-semibold text-slate-900 dark:text-slate-100 leading-tight">{t.name}</p>
                       <p className="text-xs font-mono text-slate-400 mt-0.5">{t.teacher_id || t.id}</p>
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleToggleStatus(t); }}
+                        onClick={(e) => { e.stopPropagation(); setShowStatusToggle(t); }}
                         disabled={statusUpdatingId === t.id}
                         className={`inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider transition-all hover:scale-105 ${
                           t.status === 'inactive' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-950/50'
@@ -493,11 +494,12 @@ export default function Teachers() {
                           <span className={`w-1.5 h-1.5 rounded-full ${t.status === 'inactive' ? 'bg-slate-400' : 'bg-emerald-500'}`} />
                         )}
                         {statusUpdatingId === t.id ? 'Updating...' : t.status === 'inactive' ? 'Inactive' : 'Active'}
+                      </button>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleToggleStatus(t); }}
+                      onClick={(e) => { e.stopPropagation(); setShowStatusToggle(t); }}
                       disabled={statusUpdatingId === t.id}
                       className={`p-1.5 rounded-lg transition-colors ${
                         t.status === 'inactive' 
@@ -824,6 +826,20 @@ export default function Teachers() {
         confirmLabel="Remove Faculty"
         danger
         isLoading={isDeleting}
+      />
+
+      {/* Status Toggle Dialog */}
+      <ConfirmDialog 
+        isOpen={!!showStatusToggle} 
+        onClose={() => setShowStatusToggle(null)} 
+        onConfirm={() => { handleToggleStatus(showStatusToggle); setShowStatusToggle(null); }}
+        title={showStatusToggle?.status === 'inactive' ? "Reactivate Faculty?" : "Deactivate Faculty?"} 
+        message={showStatusToggle?.status === 'inactive' 
+          ? `Are you sure you want to reactivate ${showStatusToggle?.name}? They will be able to check in again.` 
+          : `Are you sure you want to deactivate ${showStatusToggle?.name}? They will no longer be able to check in using Face AI.`
+        }
+        confirmLabel={showStatusToggle?.status === 'inactive' ? "Reactivate" : "Deactivate"} 
+        danger={showStatusToggle?.status !== 'inactive'} 
       />
 
       {/* Teacher Details Modal */}

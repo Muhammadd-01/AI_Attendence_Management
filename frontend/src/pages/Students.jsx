@@ -29,6 +29,7 @@ export default function Students() {
   const [showCapture, setShowCapture] = useState(null);
   const [showBiometric, setShowBiometric] = useState(null);
   const [showDelete, setShowDelete] = useState(null);
+  const [showStatusToggle, setShowStatusToggle] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -403,7 +404,7 @@ export default function Students() {
                   
                   <div className="flex flex-col items-end gap-1">
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleToggleStatus(s); }}
+                      onClick={(e) => { e.stopPropagation(); setShowStatusToggle(s); }}
                       disabled={statusUpdatingId === s.student_id}
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider transition-all hover:scale-105 ${
                         s.status === 'inactive' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200' : 'bg-primary-50 dark:bg-primary-950/50 text-primary-600 dark:text-primary-400 hover:bg-primary-100'
@@ -452,31 +453,31 @@ export default function Students() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center justify-end gap-1.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 pt-3 border-t border-slate-100 dark:border-slate-800">
                     <button 
                       onClick={(e) => { e.stopPropagation(); setShowCapture(s); }} 
-                      className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-xl transition-colors text-xs font-semibold ${
+                      className={`p-2 rounded-xl transition-colors ${
                         s.is_trained || (s.encodings_count > 0)
-                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100'
-                          : 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50'
+                          ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100'
+                          : 'text-blue-600 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50'
                       }`}
                       title={s.is_trained ? "Face AI Model Trained" : "Capture Face Dataset"}
                     >
-                      <Camera className="w-3.5 h-3.5" /> Faces
+                      <Camera className="w-4 h-4" />
                     </button>
                     <button 
                       onClick={(e) => { e.stopPropagation(); setShowBiometric(s); }} 
-                      className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-xl transition-colors text-xs font-semibold ${
+                      className={`p-2 rounded-xl transition-colors ${
                         s.biometric_enrolled 
-                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100' 
-                          : 'bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 hover:bg-purple-100'
+                          ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100' 
+                          : 'text-purple-600 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/50'
                       }`}
-                      title="Hardware Touch ID / Fingerprint Biometric"
+                      title={s.biometric_enrolled ? "Hardware Touch ID / Fingerprint Enrolled" : "Enroll Hardware Touch ID / Fingerprint"}
                     >
-                      <Fingerprint className="w-3.5 h-3.5" /> {s.biometric_enrolled ? 'Touch ID ✓' : 'Fingerprint'}
+                      <Fingerprint className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleToggleStatus(s); }}
+                      onClick={(e) => { e.stopPropagation(); setShowStatusToggle(s); }}
                       disabled={statusUpdatingId === s.student_id}
                       className={`p-2 rounded-xl transition-colors ${
                         s.status === 'inactive' 
@@ -592,6 +593,20 @@ export default function Students() {
       <ConfirmDialog isOpen={!!showDelete} onClose={() => setShowDelete(null)} onConfirm={handleDelete}
         title="Permanently Delete Student?" message={`Are you sure you want to permanently delete ${showDelete?.name}? They will no longer appear in attendance sessions.`}
         confirmLabel="Delete Forever" danger isLoading={isDeleting} />
+
+      {/* Status Toggle Dialog */}
+      <ConfirmDialog 
+        isOpen={!!showStatusToggle} 
+        onClose={() => setShowStatusToggle(null)} 
+        onConfirm={() => { handleToggleStatus(showStatusToggle); setShowStatusToggle(null); }}
+        title={showStatusToggle?.status === 'inactive' ? "Reactivate Student?" : "Deactivate Student?"} 
+        message={showStatusToggle?.status === 'inactive' 
+          ? `Are you sure you want to reactivate ${showStatusToggle?.name}? They will be able to check in again.` 
+          : `Are you sure you want to deactivate ${showStatusToggle?.name}? They will no longer be able to check in using Face AI.`
+        }
+        confirmLabel={showStatusToggle?.status === 'inactive' ? "Reactivate" : "Deactivate"} 
+        danger={showStatusToggle?.status !== 'inactive'} 
+      />
 
       {/* Student Details Modal */}
       <Modal isOpen={!!viewStudent} onClose={() => setViewStudent(null)} title="Student Profile" size="md">

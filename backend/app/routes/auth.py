@@ -20,7 +20,7 @@ def login():
                 "id": "principal",
                 "email": email,
                 "role": "principal",
-                "name": "Dr. Abdullah Khan",
+                "name": "Hassan Javed",
                 "phone": "+92 300 1234567",
                 "department": "Administration & Executive Office",
                 "title": "Head of Institution / Principal",

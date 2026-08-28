@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import { useApp } from '../context/AppContext';
 import Modal from '../components/Modal';
 import FaceCapture from '../components/FaceCapture';
+import { uploadFaceImage } from '../services/supabase';
 
 export default function Profile() {
   const { user, updateProfile } = useApp();
@@ -19,10 +20,11 @@ export default function Profile() {
   const [showFaceCapture, setShowFaceCapture] = useState(false);
   const [faceCount, setFaceCount] = useState(user?.face_count || 10);
   const [formData, setFormData] = useState({
-    name: user?.name || (isPrincipal ? 'Dr. Abdullah Khan' : 'Muhammad Affan'),
+    name: user?.name || (isPrincipal ? 'Hassan Javed' : 'Muhammad Affan'),
     email: user?.email || (isPrincipal ? 'principal@school.edu' : 'teacher@school.edu'),
     phone: user?.phone || (isPrincipal ? '+92 300 1234567' : '+92 321 7654321'),
     department: user?.department || (isPrincipal ? 'Administration & Executive Office' : 'Department of Computer Science'),
+    avatar_url: user?.avatar_url || '',
     title: user?.title || (isPrincipal ? 'Head of Institution / Principal' : 'Senior Lecturer & AI Lab Incharge'),
     bio: user?.bio || (isPrincipal 
       ? 'Overseeing academic excellence, AI attendance integration, and institutional governance.' 
@@ -35,6 +37,31 @@ export default function Profile() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [touchIdRegistered, setTouchIdRegistered] = useState(true);
   const [testingBiometric, setTestingBiometric] = useState(false);
+
+
+  const [isUploading, setIsUploading] = useState(false);
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsUploading(true);
+    const toastId = toast.loading('Uploading image...');
+    try {
+      const personId = user?.id || (isPrincipal ? 'PRN001' : 'TCH001');
+      const url = await uploadFaceImage(personId, file, 'profile', 'teacher-faces');
+      if (url) {
+        setFormData({ ...formData, avatar_url: url });
+        toast.success('Image uploaded successfully!', { id: toastId });
+      } else {
+        throw new Error('Upload failed');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to upload image', { id: toastId });
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleSaveProfile = (e) => {
     e.preventDefault();
@@ -158,6 +185,28 @@ export default function Profile() {
                     required
                     className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">Avatar Image URL or Upload</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={formData.avatar_url || ''}
+                      onChange={(e) => setFormData({ ...formData, avatar_url: e.target.value })}
+                      placeholder="https://example.com/photo.jpg"
+                      className="flex-1 min-w-0 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    />
+                    <label className={`flex items-center justify-center ${isUploading ? 'bg-slate-200 dark:bg-slate-700 cursor-not-allowed' : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer'} border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-4 rounded-xl transition-colors text-sm font-semibold whitespace-nowrap`}>
+                      {isUploading ? 'Uploading...' : 'Upload'}
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        className="hidden" 
+                        onChange={handleImageUpload} 
+                        disabled={isUploading}
+                      />
+                    </label>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">Email Address</label>

@@ -67,21 +67,31 @@ def manual_check_in():
         db = get_db()
         if str(student_id).startswith('TCH') or str(student_id).startswith('T-'):
             person_type = 'teacher'
-            if not student_name or student_name == 'Attendee':
-                t_matches = list(db.collection('teachers').where('teacher_id', '==', student_id).limit(1).stream())
-                if t_matches:
-                    student_name = t_matches[0].to_dict().get('name', 'Faculty Member')
+            t_matches = list(db.collection('teachers').where('teacher_id', '==', student_id).limit(1).stream())
+            if t_matches:
+                t_data = t_matches[0].to_dict()
+                if t_data.get('status') == 'inactive':
+                    return error_response("This teacher is deactivated and cannot check in.", 403)
+                if not student_name or student_name == 'Attendee':
+                    student_name = t_data.get('name', 'Faculty Member')
         elif not person_type or person_type == 'auto':
             t_matches = list(db.collection('teachers').where('teacher_id', '==', student_id).limit(1).stream())
             if t_matches:
                 person_type = 'teacher'
+                t_data = t_matches[0].to_dict()
+                if t_data.get('status') == 'inactive':
+                    return error_response("This teacher is deactivated and cannot check in.", 403)
                 if not student_name:
-                    student_name = t_matches[0].to_dict().get('name', 'Faculty Member')
+                    student_name = t_data.get('name', 'Faculty Member')
             else:
                 person_type = 'student'
                 s_matches = list(db.collection('students').where('student_id', '==', student_id).limit(1).stream())
-                if s_matches and not student_name:
-                    student_name = s_matches[0].to_dict().get('name', 'Student')
+                if s_matches:
+                    s_data = s_matches[0].to_dict()
+                    if s_data.get('status') == 'inactive':
+                        return error_response("This student is deactivated and cannot check in.", 403)
+                    if not student_name:
+                        student_name = s_data.get('name', 'Student')
 
         if not student_name or student_name == 'Unknown':
             return error_response("Unknown face detected.", 400)
